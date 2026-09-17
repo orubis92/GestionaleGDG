@@ -6,7 +6,7 @@ Struttura del repository:
 
 - `index.html`, `manifest.json`, `sw.js`, `icons/` — l'app (singolo file HTML, installabile come PWA)
 - `supabase/schema.sql` — database, regole e permessi (da eseguire una volta su Supabase)
-- `supabase/functions/sync/index.ts` — funzione di sincronizzazione con arco.swen e Albo Nazionale CSAIN
+- `supabase/functions/sync/index.ts` — funzione di sincronizzazione con arco.swen (calendario gare e albo giudici) e riconciliazione automatica delle convocazioni
 - `Documentazione/` — regolamenti di riferimento
 - `test/` — test automatico dell'interfaccia con un finto Supabase in memoria
 
@@ -22,7 +22,7 @@ Struttura del repository:
 
 ### 2. Funzione di sincronizzazione
 
-La sincronizzazione con arco.swen e con l'Albo Nazionale non può girare nel browser (i due siti non accettano chiamate da altri domini), quindi gira come Edge Function su Supabase.
+La sincronizzazione con arco.swen (calendario gare da `/api/eventiview/public`, albo giudici da `/api/albo`) non può girare nel browser (il portale non accetta chiamate da altri domini), quindi gira come Edge Function su Supabase. Dopo il calendario la funzione chiama `riconcilia_swen()` (in `schema.sql`) che crea/conferma/chiude le convocazioni in base al giudice registrato sul portale.
 
 Con la Supabase CLI installata (`npm i -g supabase`), dalla cartella del repository:
 
@@ -67,7 +67,9 @@ Ogni push successivo aggiorna l'app; il service worker è *network-first*, quind
 
 Modifica `index.html`, aggiorna `APP_VER` e la voce "Novità" nella guida, aggiorna `CACHE` in `sw.js`, commit e push.
 
-Per modifiche al database aggiungi le istruzioni in fondo a `supabase/schema.sql` (lo script è idempotente) ed eseguilo di nuovo nell'SQL Editor.
+Per modifiche al database aggiungi le istruzioni in fondo a `supabase/schema.sql` (lo script è idempotente) ed eseguilo di nuovo nell'SQL Editor. **Dopo ogni aggiornamento dello schema va anche ripubblicata la funzione `sync`** se è cambiata (`supabase functions deploy sync` o incolla di nuovo il file dal Dashboard).
+
+Storico aggiornamenti dello schema: v1.2 (albo arco.swen, colonne `swen_id`/`tessera_numero`/`tessera_tipo` su `giudici`, funzione `riconcilia_swen`).
 
 ## Test locale dell'interfaccia
 

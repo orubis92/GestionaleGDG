@@ -573,3 +573,72 @@ on conflict (anno_sportivo) do nothing;
 --       update profili set ruolo = 'comitato' where email = 'tua@email.it';
 --  Da quel momento gli altri ruoli si assegnano dall'app.
 -- =====================================================================
+
+-- =====================================================================
+--  AGGIORNAMENTO v1.2 — albo da arco.swen e riconciliazione automatica
+-- =====================================================================
+
+alter table giudici add column if not exists swen_id        int unique;   -- id nell'albo di arco.swen (/api/albo)
+alter table giudici add column if not exists tessera_numero text;         -- NumeroTesseraTecnico
+alter table giudici add column if not exists tessera_tipo   text;         -- TipoTesseraTecnico (es. QUADRI COPERTURA RCT)
+
+-- Normalizza "COGNOME NOME" per il confronto con il campo Giudice di arco.swen
+create or replace function nome_norm(t text) returns text
+language sql immutable as $$
+  select regexp_replace(upper(coalesce(trim(t),'')), '\s+', ' ', 'g');
+$$;
+
+-- Riconciliazione con arco.swen:
+--  1. le gare arco.swen passate ancora "programmate" diventano "svolte";
+--  2. per ogni gara con un giudice registrato sul portale che corrisponde a un giudice in elenco:
+--     - se non c'è convocazione attiva, la crea (ruolo giudice / affiancamento; deroga se regionale su nazionale);
+--     - proposta/accettata → confermata (la registrazione sul portale è la designazione ufficiale);
+--     - confermata e gara passata → svolta.
+--  Le regole dei trigger restano valide: i casi rifiutati finiscono nell'elenco "errori" del risultato.
+create or replace function riconcilia_swen() returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare
+  r gare%rowtype; g giudici%rowtype; c convocazioni%rowtype;
+  n_chiuse int := 0; n_ins int := 0; n_conf int := 0; n_sv int := 0;
+  errs text[] := '{}'; passata boolean; nm text;
+begin
+  if not is_comitato() then raise exception 'Operazione riservata al comitato'; end if;
+
+  update gare set stato = 'svolta'
+   where origine = 'swen' and stato = 'programmata' and coalesce(data_fine, data_inizio) < current_date;
+  get diagnostics n_chiuse = row_count;
+
+  for r in select * from gare where giudice_swen is not null and stato <> 'annullata' loop
+    nm := nome_norm(r.giudice_swen);
+    select * into g from giudici
+     where nome_norm(cognome || ' ' || nome) = nm or nome_norm(nome || ' ' || cognome) = nm
+     order by attivo desc limit 1;
+    if not found then continue; end if;
+    passata := coalesce(r.data_fine, r.data_inizio) < current_date;
+    begin
+      select * into c from convocazioni
+       where gara_id = r.id and giudice_id = g.id and stato not in ('rifiutata','annullata') limit 1;
+      if not found then
+        insert into convocazioni (gara_id, giudice_id, ruolo, deroga, note)
+        values (r.id, g.id,
+                case when g.in_affiancamento then 'affiancamento' else 'giudice' end,
+                (g.qualifica = 'regionale' and coalesce(r.classificazione,'') in ('Nazionale','Internazionale','Europeo')),
+                'Registrato su arco.swen')
+        returning * into c;
+        n_ins := n_ins + 1;
+      end if;
+      if c.stato in ('proposta','accettata') then
+        update convocazioni set stato = 'confermata' where id = c.id; c.stato := 'confermata'; n_conf := n_conf + 1;
+      end if;
+      if passata and c.stato = 'confermata' then
+        update convocazioni set stato = 'svolta' where id = c.id; n_sv := n_sv + 1;
+      end if;
+    exception when others then
+      errs := errs || (to_char(r.data_inizio,'DD/MM/YYYY') || ' ' || r.titolo || ' — ' || r.giudice_swen || ': ' || sqlerrm);
+    end;
+  end loop;
+
+  return jsonb_build_object('gare_chiuse', n_chiuse, 'convocazioni_create', n_ins,
+                            'confermate', n_conf, 'svolte', n_sv, 'errori', to_jsonb(errs));
+end $$;
+grant execute on function riconcilia_swen() to authenticated;

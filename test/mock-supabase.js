@@ -4,7 +4,7 @@
   const T={
     giudici:[
       {id:'g1',cognome:'Verdi',nome:'Anna',email:'comitato@test.it',qualifica:'nazionale',attivo:true,in_affiancamento:false,affiancamenti_richiesti:2,provincia:'CR',regione:'Lombardia',comune:'Cremona',societa:'Arcieri Cremona',scadenza_tessera:'2027-01-31',scadenza_certificato:'2026-10-01',data_nascita:'1980-05-05',origine:'manuale'},
-      {id:'g2',cognome:'Rossi',nome:'Mario',email:'rossi@test.it',qualifica:'regionale',attivo:true,in_affiancamento:false,affiancamenti_richiesti:2,provincia:'BG',regione:'Lombardia',comune:'Bergamo',societa:'Branco Arcieri del Lupo',scadenza_tessera:'2026-01-31',origine:'albo',albo_id:'9728',presente_in_albo:true},
+      {id:'g2',cognome:'Rossi',nome:'Mario',email:'rossi@test.it',qualifica:'regionale',attivo:true,in_affiancamento:false,affiancamenti_richiesti:2,provincia:'BG',regione:'Lombardia',comune:'Bergamo',societa:'Branco Arcieri del Lupo',scadenza_tessera:'2026-01-31',origine:'albo',albo_id:'9728',swen_id:107,tessera_numero:'2',tessera_tipo:'QUADRI COPERTURA RCT',presente_in_albo:true},
       {id:'g3',cognome:'Bianchi',nome:'Luca',email:'bianchi@test.it',qualifica:'regionale',attivo:true,in_affiancamento:true,affiancamenti_richiesti:2,provincia:'MI',regione:'Lombardia',origine:'manuale'},
       {id:'g4',cognome:'Neri',nome:'Paola',qualifica:'emerito',attivo:false,in_affiancamento:false,affiancamenti_richiesti:2,origine:'albo',presente_in_albo:false}
     ],
@@ -62,6 +62,7 @@
   window.supabase={ createClient(){ return {
     auth:{ getSession:async()=>({data:{session}}), onAuthStateChange(){}, signInWithPassword:async({email})=>{ const u=users[email]; if(!u) return {error:{message:'Invalid login credentials'}}; session={user:u}; return {data:{user:u},error:null}; }, signUp:async({email})=>({data:{user:{id:'u9',email},session:null},error:null}), resetPasswordForEmail:async()=>({error:null}), signOut:async()=>{session=null;}, updateUser:async()=>({error:null}) },
     from:q,
+    rpc:async(name)=>({data:{convocazioni_create:1,confermate:0,svolte:1,gare_chiuse:0,errori:['06/09/2026 Gara affiancato solo — BIANCHI LUCA: art. 2']},error:null}),
     storage:{ from(){ return { upload:async()=>({error:null}), download:async()=>({data:new Blob(['x']),error:null}), remove:async()=>({error:null}) }; } },
     functions:{ invoke:async(name,{body})=>({data:{messaggio:'Mock '+body.tipo,inseriti:3,aggiornati:1,segnalati:0,note:['nota di prova']},error:null}) }
   }; } };

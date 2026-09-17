@@ -1,6 +1,7 @@
 // =====================================================================
 //  GestionaleGDG — Edge Function "sync"
-//  Sincronizza il calendario gare (arco.swen) e l'albo giudici (Albo Nazionale CSAIN).
+//  Sincronizza il calendario gare e l'albo giudici di gara, entrambi dal portale arco.swen,
+//  poi riconcilia le convocazioni con il giudice registrato sul portale (funzione SQL riconcilia_swen).
 //  Chiamata dall'app con: supabase.functions.invoke('sync', { body: { tipo: 'swen' | 'albo' } })
 //  Richiede un utente loggato con ruolo "comitato".
 //
@@ -11,8 +12,7 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 
 const SWEN_URL = "https://arco-api.swen.it/api/eventiview/public";
-const ALBO_URL = "https://apigtweb.csain.eu/v1/albo";
-const ALBO_FILTRO = { Cognome: "", Nome: "", IDSport: 95, IDDisciplinaSportiva: 349, Qualifica: "UDG", SottoQualifica: null, SiglaProvincia: "" };
+const ALBO_URL = "https://arco-api.swen.it/api/albo";   // albo tecnici/istruttori del portale arco.swen (pubblico)
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -133,58 +133,75 @@ async function syncSwen(db: ReturnType<typeof createClient>) {
     if (ue) { note.push(`Errore aggiornamento blocco ${i / 200 + 1}: ${ue.message}`); continue; }
     aggiornati += blocco.length;
   }
-  return { messaggio: `Calendario arco.swen: ${gare.length} gare lette`, inseriti, aggiornati, segnalati: 0, note: note.slice(0, 50) };
+  // riconciliazione automatica: convocazioni dal campo "Giudice" del portale, chiusura gare passate
+  const { data: ric, error: re } = await db.rpc("riconcilia_swen");
+  if (re) note.push(`Riconciliazione non eseguita: ${re.message}`);
+  else {
+    note.unshift(`Riconciliazione: ${ric.convocazioni_create} convocazioni create, ${ric.confermate} confermate, ${ric.svolte} chiuse come svolte, ${ric.gare_chiuse} gare passate chiuse`);
+    for (const e of (ric.errori ?? []) as string[]) note.push(`Non riconciliata: ${e}`);
+  }
+  return { messaggio: `Calendario arco.swen: ${gare.length} gare lette`, inseriti, aggiornati, segnalati: ((ric?.errori ?? []) as string[]).length, note: note.slice(0, 60) };
 }
 
 // ---------------------------------------------------------------------
-// Albo giudici — Albo Nazionale CSAIN
+// Albo giudici di gara — portale arco.swen (/api/albo, campo AbilitazioneTecnico = "GIUDICE DI GARA")
 // ---------------------------------------------------------------------
 async function syncAlbo(db: ReturnType<typeof createClient>) {
-  const r = await fetch(ALBO_URL, { method: "POST", headers: { "Content-Type": "application/json", Accept: "application/json" }, body: JSON.stringify(ALBO_FILTRO) });
-  if (!r.ok) throw new Error(`Albo Nazionale ha risposto ${r.status}`);
-  const body = await r.json();
-  const albo = (body?.data ?? []) as Record<string, unknown>[];
-  if (!Array.isArray(albo)) throw new Error("Risposta Albo non valida");
+  const r = await fetch(ALBO_URL, { headers: { Accept: "application/json" } });
+  if (!r.ok) throw new Error(`Albo arco.swen ha risposto ${r.status}`);
+  const tutti = await r.json() as Record<string, unknown>[];
+  if (!Array.isArray(tutti)) throw new Error("Risposta albo non valida");
+  const albo = tutti.filter((a) => /GIUDICE/i.test(String(a.AbilitazioneTecnico ?? "")));
 
-  const { data: esistenti, error } = await db.from("giudici").select("id, albo_id, cognome, nome, provincia, presente_in_albo");
+  const { data: esistenti, error } = await db.from("giudici").select("id, swen_id, albo_id, cognome, nome, provincia, regione, comune, societa, societa_codice, sesso, tessera_numero, tessera_tipo, presente_in_albo, attivo");
   if (error) throw error;
-  type GiudiceRow = { id: string; albo_id: string | null; cognome: string; nome: string; provincia: string | null; presente_in_albo: boolean | null };
+  type GiudiceRow = { id: string; swen_id: number | null; albo_id: string | null; cognome: string; nome: string; provincia: string | null; regione: string | null; comune: string | null; societa: string | null; societa_codice: string | null; sesso: string | null; tessera_numero: string | null; tessera_tipo: string | null; presente_in_albo: boolean | null; attivo: boolean };
   const rows = (esistenti ?? []) as GiudiceRow[];
-  const byAlbo = new Map<string, GiudiceRow>(rows.filter((g) => g.albo_id).map((g) => [String(g.albo_id), g]));
-  const byNome = new Map<string, GiudiceRow>(rows.map((g) => [`${g.cognome} ${g.nome}`.toLowerCase().replace(/\s+/g, " "), g]));
+  const norm = (t: string) => (t || "").toUpperCase().replace(/\s+/g, " ").trim();
+  const bySwen = new Map<number, GiudiceRow>(rows.filter((g) => g.swen_id != null).map((g) => [g.swen_id as number, g]));
+  const byNome = new Map<string, GiudiceRow>(rows.map((g) => [norm(`${g.cognome} ${g.nome}`), g]));
 
   let inseriti = 0, aggiornati = 0, segnalati = 0; const note: string[] = [];
-  const visti = new Set<string>();
+  const visti = new Set<number>();
   const now = new Date().toISOString();
 
   for (const a of albo) {
-    const alboId = String(a.ID);
-    const cognome = capWords(a.Cognome as string), nome = capWords(a.Nome as string);
-    visti.add(alboId);
-    let ex = byAlbo.get(alboId);
+    const swenId = Number(a.id);
+    const cognome = capWords(String(a.Cognome ?? "")).trim(), nome = capWords(String(a.Nome ?? "")).replace(/\s+/g, " ").trim();
+    if (!cognome || !nome) continue;
+    visti.add(swenId);
+    // dati anagrafici forniti dal portale (mai il codice fiscale)
+    const dati: Record<string, unknown> = {
+      swen_id: swenId, presente_in_albo: a.isAttivo !== false, ultima_sync_albo: now,
+      sesso: a.Sesso === "F" ? "F" : a.Sesso === "M" ? "M" : null,
+      provincia: (a.Provincia as string) || null,
+      regione: (a.SezioneDescrizione as string) || null,
+      comune: a.Citta ? capWords(String(a.Citta)) : null,
+      societa: (a.AssociazioneDenominazione as string) || null,
+      societa_codice: (a.AssociazioneCodice as string) || null,
+      tessera_numero: (a.NumeroTesseraTecnico as string) || null,
+      tessera_tipo: (a.TipoTesseraTecnico as string) || null,
+    };
+    let ex = bySwen.get(swenId) ?? byNome.get(norm(`${cognome} ${nome}`)) ?? byNome.get(norm(`${nome} ${cognome}`));
     if (!ex) {
-      // giudice inserito a mano con lo stesso nome? collegalo all'albo
-      const m = byNome.get(`${cognome} ${nome}`.toLowerCase());
-      if (m && !m.albo_id) { ex = m; note.push(`Collegato all'albo: ${cognome} ${nome}`); }
-    }
-    if (!ex) {
-      const { error: ie } = await db.from("giudici").insert({ albo_id: alboId, cognome, nome, sesso: (a.Sesso as string) || null, provincia: (a.SiglaProvincia as string) || null, origine: "albo", presente_in_albo: true, ultima_sync_albo: now, qualifica: "regionale", attivo: true, note: "Importato dall'Albo Nazionale: verificare qualifica e contatti" });
+      const { error: ie } = await db.from("giudici").insert({ ...dati, cognome, nome, origine: "albo", qualifica: "regionale", attivo: true, note: "Importato dall'albo arco.swen: verificare qualifica e contatti" });
       if (ie) { note.push(`Errore inserimento ${cognome} ${nome}: ${ie.message}`); continue; }
-      inseriti++;
+      inseriti++; note.push(`Nuovo: ${cognome} ${nome} (${dati.provincia ?? "-"})`);
     } else {
-      const upd: Record<string, unknown> = { albo_id: alboId, presente_in_albo: true, ultima_sync_albo: now };
-      if (!ex.provincia && a.SiglaProvincia) upd.provincia = a.SiglaProvincia;
+      // aggiorna solo i campi vuoti o gestiti dal portale; non tocca contatti, qualifica, scadenze, note
+      const upd: Record<string, unknown> = { swen_id: swenId, presente_in_albo: dati.presente_in_albo, ultima_sync_albo: now, tessera_numero: dati.tessera_numero, tessera_tipo: dati.tessera_tipo, societa: dati.societa, societa_codice: dati.societa_codice };
+      for (const k of ["sesso", "provincia", "regione", "comune"]) if (!(ex as Record<string, unknown>)[k] && dati[k]) upd[k] = dati[k];
       const { error: ue } = await db.from("giudici").update(upd).eq("id", ex.id);
       if (ue) { note.push(`Errore aggiornamento ${cognome} ${nome}: ${ue.message}`); continue; }
-      if (ex.presente_in_albo !== true) aggiornati++;
+      if (ex.swen_id !== swenId || ex.presente_in_albo !== true || ex.tessera_numero !== dati.tessera_numero || ex.societa !== dati.societa) aggiornati++;
     }
   }
-  // chi era in albo e non c'è più: segnala (non cancella, non disattiva)
+  // chi era collegato all'albo e non c'è più: segnala (non cancella, non disattiva)
   for (const g of rows) {
-    if (g.albo_id && !visti.has(String(g.albo_id)) && g.presente_in_albo !== false) {
+    if (g.swen_id != null && !visti.has(g.swen_id) && g.presente_in_albo !== false) {
       await db.from("giudici").update({ presente_in_albo: false, ultima_sync_albo: now }).eq("id", g.id);
       segnalati++; note.push(`Non più presente nell'albo: ${g.cognome} ${g.nome}`);
     }
   }
-  return { messaggio: `Albo Nazionale: ${albo.length} ufficiali di gara letti`, inseriti, aggiornati, segnalati, note: note.slice(0, 50) };
+  return { messaggio: `Albo arco.swen: ${albo.length} giudici di gara letti (su ${tutti.length} tecnici/istruttori)`, inseriti, aggiornati, segnalati, note: note.slice(0, 60) };
 }

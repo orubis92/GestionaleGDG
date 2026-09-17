@@ -230,7 +230,7 @@ const CONFIG = {
   SUPABASE_URL: 'https://vscxesrpxmmyssrdegpm.supabase.co',
   SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZzY3hlc3JweG1teXNzcmRlZ3BtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk2MTk3MzYsImV4cCI6MjEwNTE5NTczNn0.cm98J7vJzY4qbxlsZ_9XpxYHTSvo7bMh4Sp7d1b_BeI'
 };
-const APP_VER = '1.1.0';
+const APP_VER = '1.2.0';
 /* ===================== COSTANTI DI DOMINIO ===================== */
 const QUALIFICHE = { regionale:'Giudice Regionale', nazionale:'Giudice Nazionale', emerito:'Giudice Emerito' };
 const RUOLI_GARA = { giudice:'Giudice', coordinatore:'Coordinatore', affiancamento:'Affiancamento' };
@@ -661,7 +661,7 @@ function openGiudice(id){
     <p class="small">${g.email?`✉ <a href="mailto:${esc(g.email)}">${esc(g.email)}</a>`:''} ${g.telefono?`· ☎ <a href="tel:${esc(g.telefono)}">${esc(g.telefono)}</a>`:''}<br>
     ${esc([g.indirizzo,g.cap,g.comune,g.provincia].filter(Boolean).join(', '))}${g.regione?' · '+esc(g.regione):''}${g.societa?'<br>Società: '+esc(g.societa):''}
     ${g.data_nascita?'<br>Nato/a il '+fmtD(g.data_nascita)+' ('+eta(g.data_nascita)+' anni)':''}${g.data_inizio_attivita?' · Giudice dal '+fmtD(g.data_inizio_attivita):''}<br>
-    Tessera RCT: <b>${g.scadenza_tessera?fmtD(g.scadenza_tessera):'—'}</b> · Certificato medico: <b>${g.scadenza_certificato?fmtD(g.scadenza_certificato):'—'}</b></p>
+    Tessera RCT: <b>${g.scadenza_tessera?fmtD(g.scadenza_tessera):'—'}</b>${g.tessera_numero?' (n. '+esc(g.tessera_numero)+(g.tessera_tipo?', '+esc(g.tessera_tipo).toLowerCase():'')+')':''} · Certificato medico: <b>${g.scadenza_certificato?fmtD(g.scadenza_certificato):'—'}</b>${g.swen_id?' · <span class="muted">albo arco.swen #'+g.swen_id+'</span>':''}</p>
     ${g.note?`<p class="small"><i>${esc(g.note)}</i></p>`:''}
     <div class="kpis"><div class="kpi"><b>${s.servizi_12m||0}</b><span>Servizi 12 mesi</span></div><div class="kpi"><b>${s.aggiornamenti_12m||0}</b><span>Aggiornamenti 12 mesi</span></div><div class="kpi"><b>${mie.filter(c=>c.stato==='svolta').length}</b><span>Gare svolte totali</span></div><div class="kpi"><b>${s.ultimo_servizio?fmtD(s.ultimo_servizio):'—'}</b><span>Ultimo servizio</span></div></div>
     <div class="section-title"><h3>Aggiornamenti tecnici</h3><button class="btn sm" onclick="aggForm('${id}')">+ Aggiungi</button></div>
@@ -861,28 +861,21 @@ REPORT.riconcilia=()=>{
   const rows=gare.map(g=>{ const m=matchGiudiceSwen(g.giudice_swen); const conf=convDiGara(g.id).filter(c=>['confermata','svolta'].includes(c.stato)); const inConv=m&&conf.some(c=>c.giudice_id===m.id);
     let stato, cls; if(!g.giudice_swen) { stato='Nessun giudice su arco.swen'; cls='grey'; } else if(!m){ stato='Giudice non riconosciuto'; cls='warn'; } else if(inConv){ stato='Coerente'; cls='ok'; } else if(conf.length){ stato='Diverso dalla convocazione'; cls='err'; } else { stato='Manca la convocazione'; cls='warn'; }
     return {g,m,conf,stato,cls}; });
-  const importabili=rows.filter(r=>r.m && !r.conf.length && r.g.data_inizio<today());
-  return `<p class="small muted">Confronto tra il giudice registrato dall'organizzatore su arco.swen e le convocazioni confermate qui. Le gare passate con giudice riconosciuto e senza convocazione si possono importare come "svolte" per ricostruire lo storico.</p>
-  <div class="kpis"><div class="kpi ok"><b>${rows.filter(r=>r.cls==='ok').length}</b><span>Coerenti</span></div><div class="kpi err"><b>${rows.filter(r=>r.cls==='err').length}</b><span>Discordanti</span></div><div class="kpi warn"><b>${rows.filter(r=>r.cls==='warn').length}</b><span>Da verificare</span></div><div class="kpi"><b>${importabili.length}</b><span>Importabili nello storico</span></div></div>
-  ${importabili.length?`<button class="btn primary mb" onclick="importaStorico()">Importa ${importabili.length} gare passate come svolte</button>`:''}
+  const daRic=rows.filter(r=>r.m && (!r.conf.length || (r.g.data_inizio<today() && r.conf.some(c=>c.stato==='confermata'))));
+  return `<p class="small muted">Confronto tra il giudice registrato dall'organizzatore su arco.swen e le convocazioni qui. La riconciliazione viene eseguita automaticamente a ogni sincronizzazione del calendario: crea le convocazioni mancanti, conferma le proposte e chiude come "svolte" le gare passate. Qui puoi rilanciarla a mano.</p>
+  <div class="kpis"><div class="kpi ok"><b>${rows.filter(r=>r.cls==='ok').length}</b><span>Coerenti</span></div><div class="kpi err"><b>${rows.filter(r=>r.cls==='err').length}</b><span>Discordanti</span></div><div class="kpi warn"><b>${rows.filter(r=>r.cls==='warn').length}</b><span>Da verificare</span></div><div class="kpi ${daRic.length?'warn':''}"><b>${daRic.length}</b><span>Da riconciliare</span></div></div>
+  <button class="btn ${daRic.length?'primary':''} mb" onclick="importaStorico()">↻ Riconcilia ora</button>
   <div class="card tbl-wrap"><table class="tbl"><thead><tr><th>Data</th><th>Gara</th><th>Giudice su arco.swen</th><th>Convocati qui</th><th>Esito</th></tr></thead><tbody>
   ${rows.map(r=>`<tr class="clickable" onclick="openGara('${r.g.id}')"><td>${fmtD(r.g.data_inizio)}</td><td>${esc(r.g.titolo)}</td><td>${esc(r.g.giudice_swen||'—')}</td><td>${esc(r.conf.map(c=>nomeG(S.giudici.find(x=>x.id===c.giudice_id))).join(', '))||'—'}</td><td>${pill(r.stato,r.cls)}</td></tr>`).join('')}</tbody></table></div>`;
 };
 async function importaStorico(){
-  const gare=gareAnno(S.annoSportivo).filter(g=>g.origine==='swen' && g.data_inizio<today());
-  const recs=[]; for(const g of gare){ const m=matchGiudiceSwen(g.giudice_swen); if(!m) continue; if(convDiGara(g.id).some(c=>['confermata','svolta'].includes(c.stato))) continue; recs.push({g,m}); }
-  confirmDlg('Importa storico', `Verranno create ${recs.length} convocazioni in stato "svolta" (ruolo Giudice) dal campo Giudice di arco.swen. Le regole di qualifica vengono applicate: le gare nazionali dirette da un Regionale vengono importate con deroga.`, async()=>{
-    let ok=0, ko=[];
-    for(const {g,m} of recs){
-      const ins=await sb.from('convocazioni').insert({gara_id:g.id, giudice_id:m.id, ruolo:m.in_affiancamento?'affiancamento':'giudice', deroga:(m.qualifica==='regionale'&&isNaz(g.classificazione)), note:'Importata da arco.swen', created_by:S.user.id}).select().single();
-      if(ins.error){ ko.push(g.titolo+': '+ins.error.message); continue; }
-      const up=await sb.from('convocazioni').update({stato:'svolta'}).eq('id',ins.data.id); if(up.error){ ko.push(g.titolo+': '+up.error.message); continue; }
-      ok++;
-    }
-    toast(`Importate ${ok} convocazioni${ko.length?', '+ko.length+' errori':''}`, ko.length?'err':'ok'); if(ko.length) console.warn(ko);
-    if(gare.some(g=>g.stato==='programmata')) await sb.from('gare').update({stato:'svolta'}).in('id', gare.map(g=>g.id)).eq('stato','programmata');
-    await reload();
+  confirmDlg('Riconcilia con arco.swen', 'Per ogni gara con un giudice registrato sul portale che corrisponde a un giudice in elenco: crea la convocazione se manca, conferma le proposte, chiude come "svolte" le gare passate. Le gare arco.swen passate ancora in programma vengono chiuse. Le regole del regolamento restano valide: i casi non riconciliabili vengono elencati.', async()=>{
+    const res=await riconciliaSwen(); if(res) { toast('Riconciliazione eseguita','ok'); await reload(); if(res.errori&&res.errori.length) openModal('Casi non riconciliati', '<ul class="small">'+res.errori.map(e=>'<li>'+esc(e)+'</li>').join('')+'</ul>', [{t:'Chiudi',cls:'navy',fn:(m)=>closeModal(m)}]); }
   });
+}
+async function riconciliaSwen(){
+  const {data,error}=await sb.rpc('riconcilia_swen'); if(error){ err(error); return null; }
+  toast(`Convocazioni create ${data.convocazioni_create} · confermate ${data.confermate} · svolte ${data.svolte} · gare chiuse ${data.gare_chiuse}`,'ok'); return data;
 }
 REPORT.referti=()=>{
   const rows=sortBy(convAnno().filter(c=>['confermata','svolta'].includes(c.stato) && c.data_inizio<today()), c=>c.data_inizio, true);
@@ -939,7 +932,7 @@ function profiloForm(pid){
 
 /* ---------- SINCRONIZZAZIONE ---------- */
 function syncDlg(tipo){
-  const html=`<p class="small">${tipo==='albo'?'Legge l\'Albo Nazionale CSAIN (Tiro con l\'arco · 3D · Ufficiali di Gara): aggiunge i giudici nuovi, aggiorna nome e provincia, segnala chi non risulta più iscritto.':tipo==='swen'?'Legge il calendario pubblico di arco.swen: aggiunge le gare nuove e aggiorna titolo, date, luogo, tipo e giudice registrato. Percorsi, fabbisogno, stato e note del comitato non vengono toccati.':'Scegli cosa sincronizzare.'}</p>
+  const html=`<p class="small">${tipo==='albo'?'Legge l\'albo del portale arco.swen (tecnici con abilitazione Giudice di Gara): aggiunge i giudici nuovi con società, comune, provincia, regione e numero tessera; aggiorna società e tessera di quelli esistenti; segnala chi non risulta più in albo. Contatti, qualifica e scadenze restano quelli inseriti qui.':tipo==='swen'?'Legge il calendario pubblico di arco.swen: aggiunge le gare nuove e aggiorna titolo, date, luogo, tipo e giudice registrato; poi riconcilia le convocazioni con il giudice registrato sul portale (crea, conferma, chiude come svolte). Percorsi, fabbisogno, stato manuale e note del comitato non vengono toccati.':'Scegli cosa sincronizzare.'}</p>
     ${!tipo?'<div class="row"><button class="btn" onclick="closeModal();syncDlg(\'swen\')">Calendario gare</button><button class="btn" onclick="closeModal();syncDlg(\'albo\')">Albo giudici</button></div>':''}
     <div id="sync-out" class="mt"></div>`;
   const actions=[{t:'Chiudi',fn:(m)=>closeModal(m)}];
@@ -964,6 +957,7 @@ async function syncLog(){
    (1) la sezione GUIDE interessata, (2) CHANGELOG con la versione, (3) APP_VER e CACHE in sw.js.
    r: 'tutti' | 'comitato' | 'giudice'  — per chi è rilevante la sezione. */
 const CHANGELOG = [
+  {v:'1.2.0', d:'2026-09-17', items:['Albo giudici sincronizzato dal portale arco.swen (56 giudici di gara con società, comune, provincia, regione e numero tessera) al posto dell\'Albo Nazionale.','Riconciliazione automatica con arco.swen a ogni sincronizzazione del calendario: crea o conferma le convocazioni dal giudice registrato sul portale e chiude come "svolte" le gare passate, così i servizi vengono contati senza passaggi manuali.','Report → arco.swen: pulsante "Riconcilia ora" al posto dell\'importazione manuale.','Scheda giudice: numero e tipo tessera dall\'albo.']},
   {v:'1.1.0', d:'2026-09-17', items:['Guida in linea completa: pagina dedicata con ricerca, sezioni per ruolo, istruzioni passo passo, domande frequenti e registro versioni.','La registrazione indica esplicitamente l\'indirizzo dell\'app come destinazione del link di conferma email.']},
   {v:'1.0.0', d:'2026-09-17', items:['Prima versione: login, giudici, gare, disponibilità, convocazioni con le regole del Regolamento GdG rev 1.0, rimborsi a tre modalità, referti, report annuale, sincronizzazione arco.swen e Albo Nazionale.']}
 ];
@@ -1087,7 +1081,7 @@ const GUIDE = [
    <li><b>Attività giudici</b>: per ogni giudice gare svolte (con barra), suddivise per classificazione, coordinamenti, affiancamenti, disponibilità date, convocazioni ricevute, rifiuti, assenze, rimborsi. Contatori: servizi totali, media per giudice, giudici mai convocati, rifiuti.</li>
    <li><b>Mantenimento</b>: verifica dei requisiti del regolamento (art. 10 bis, 6, 3, 13, 20) per ogni giudice attivo, con semaforo e note. Ordinato dai casi più gravi.</li>
    <li><b>Copertura</b>: gare dell'anno con richiesti/confermati/disponibilità, gare scoperte in evidenza, riepilogo per regione, percentuale di copertura.</li>
-   <li><b>arco.swen</b>: confronto tra il giudice registrato dall'organizzatore sul portale e le convocazioni confermate qui: <i>Coerente</i>, <i>Diverso dalla convocazione</i>, <i>Manca la convocazione</i>, <i>Giudice non riconosciuto</i> (nome sul portale diverso da cognome+nome in elenco). Il pulsante <b>Importa</b> crea, per le gare passate con giudice riconosciuto e senza convocazione, una convocazione "svolta": serve a ricostruire lo storico degli anni precedenti.</li>
+   <li><b>arco.swen</b>: confronto tra il giudice registrato dall'organizzatore sul portale e le convocazioni qui: <i>Coerente</i>, <i>Diverso dalla convocazione</i>, <i>Manca la convocazione</i>, <i>Giudice non riconosciuto</i> (nome sul portale diverso da cognome+nome in elenco). <b>Riconcilia ora</b> esegue la riconciliazione automatica descritta in "Sincronizzazioni"; cambiando l'anno sportivo si ricostruisce anche lo storico degli anni precedenti.</li>
    <li><b>Referti</b>: gare svolte con o senza copia del referto caricata.</li>
   </ul>`},
  {cat:'Comitato', r:'comitato', t:'Impostazioni: parametri, sincronizzazioni, account', c:`
@@ -1095,17 +1089,18 @@ const GUIDE = [
   <p><b>Parametri anno sportivo</b>: tariffa €/km, gettoni (regionale, nazionale, coordinatore), modalità di rimborso predefinita, minimi di servizi e aggiornamenti in 12 mesi, mesi massimi di inattività, limiti di età. Vanno impostati per ogni anno sportivo (art. 16: misura stabilita annualmente); se mancano si usano quelli dell'anno più recente.</p>
   <p><b>Sincronizzazione</b>: pulsanti per calendario gare e albo giudici, più il <b>Registro</b> delle esecuzioni con esito e note.</p>
   <p><b>Account e ruoli</b>: ogni account registrato va collegato a un giudice e ha un ruolo (Giudice o Comitato). Chi si registra con l'email presente nel profilo viene collegato in automatico. Non puoi togliere il ruolo Comitato a te stesso.</p>`},
- {cat:'Comitato', r:'comitato', t:'Sincronizzazioni: arco.swen e Albo Nazionale', c:`
-  <p><b>Calendario gare (arco.swen)</b>: legge il calendario pubblico del portale e importa le sole gare (non corsi e attività didattiche) con data, tipo, classificazione, organizzatore, luogo, contatti e il <b>giudice registrato</b> dall'organizzatore. Le gare nuove passate vengono create come "svolte", quelle future come "in programma"; le gare disattivate sul portale vengono segnate "annullate" con una nota nel registro. Percorsi, fabbisogno, stato e note del comitato non vengono mai sovrascritti.</p>
-  <p><b>Albo giudici (Albo Nazionale CSAIN)</b>: legge gli Ufficiali di Gara della disciplina Tiro con l'arco · 3D. L'albo fornisce solo cognome, nome, provincia e sesso: i giudici nuovi vengono creati come Regionali con la nota "verificare qualifica e contatti"; quelli già presenti (stesso ID albo o stesso cognome+nome) vengono collegati. Chi non risulta più nell'albo viene <b>segnalato</b> ("non in albo") ma non cancellato né disattivato: decide il comitato.</p>
-  <p>Quando lanciarle: il calendario ogni settimana o prima di pianificare le convocazioni; l'albo dopo ogni corso o aggiornamento dell'albo nazionale. Le sincronizzazioni non toccano convocazioni, disponibilità e rimborsi.</p>`},
+ {cat:'Comitato', r:'comitato', t:'Sincronizzazioni: calendario e albo da arco.swen', c:`
+  <p><b>Calendario gare</b>: legge il calendario pubblico del portale arco.swen e importa le sole gare (non corsi e attività didattiche) con data, tipo, classificazione, organizzatore, luogo, contatti e il <b>giudice registrato</b> dall'organizzatore. Le gare nuove passate vengono create come "svolte", quelle future come "in programma"; le gare disattivate sul portale vengono segnate "annullate" con una nota nel registro. Percorsi, fabbisogno e note del comitato non vengono mai sovrascritti.</p>
+  <p><b>Riconciliazione automatica</b> (al termine di ogni sincronizzazione del calendario, o a mano da Report → arco.swen → Riconcilia ora): per ogni gara con un giudice registrato sul portale che corrisponde a un giudice in elenco, l'app <b>crea la convocazione</b> se manca (ruolo Giudice, o Affiancamento; deroga automatica se un Regionale è su gara nazionale), <b>conferma</b> le proposte/accettate e, a gara passata, le chiude come <b>svolte</b>. Le gare passate ancora "in programma" vengono chiuse. Le regole del regolamento restano valide: i casi che le violano (per esempio un affiancato registrato da solo) non vengono forzati e compaiono nel registro e nel report. Un giudice segnato "Assente" o una convocazione "Rifiutata"/"Annullata" non vengono toccati.</p>
+  <p><b>Albo giudici</b>: legge l'albo del portale arco.swen (tecnici con abilitazione "Giudice di Gara"). Fornisce cognome, nome, sesso, società, comune, provincia, regione e numero tessera: i giudici nuovi vengono creati come Regionali con la nota "verificare qualifica e contatti"; quelli già presenti (stesso ID o stesso cognome+nome) vengono collegati e aggiornati in società e tessera. Contatti, qualifica, scadenze e note restano quelli inseriti qui. Chi non risulta più nell'albo viene <b>segnalato</b> ("non in albo") ma non cancellato né disattivato: decide il comitato.</p>
+  <p>Quando lanciarle: il calendario ogni settimana e comunque dopo ogni fine settimana di gara (così i servizi svolti vengono contati subito); l'albo dopo ogni corso. Le sincronizzazioni non toccano disponibilità e rimborsi.</p>`},
 
  {cat:'Domande frequenti', r:'tutti', t:'Perché una gara risulta "scoperta" anche se ho convocato qualcuno?', c:`<p>Contano solo le convocazioni <b>confermate</b> (o svolte) con ruolo Giudice o Coordinatore. Una proposta non ancora accettata, una accettata non ancora confermata o un affiancamento non coprono il fabbisogno.</p>`},
  {cat:'Domande frequenti', r:'tutti', t:'Ho convocato un giudice ma l\'app dice "richiede deroga"', c:`<p>È un Giudice Regionale su una gara Nazionale/Internazionale/Europea (art. 7 ter). Nella finestra di conferma dell'assegnazione spunta "Autorizzo la deroga del comitato". La deroga resta visibile sulla convocazione.</p>`},
  {cat:'Domande frequenti', r:'tutti', t:'Non riesco a confermare un giudice in affiancamento', c:`<p>Un giudice in affiancamento deve essere affiancato da un giudice riconosciuto (art. 2): conferma prima almeno un giudice con ruolo Giudice o Coordinatore sulla stessa gara.</p>`},
  {cat:'Domande frequenti', r:'tutti', t:'Un giudice non compare tra gli assegnabili', c:`<p>O è già convocato per quella gara (anche come proposta), oppure è segnato "non attivo". I non attivi si vedono nella scheda Giudici con il filtro "Anche non attivi".</p>`},
- {cat:'Domande frequenti', r:'tutti', t:'I conteggi del report non tornano', c:`<p>Controlla che le gare passate siano state <b>chiuse</b> (Home → Gare passate da chiudere → Svolta/Assente): finché una convocazione resta "confermata" non conta come servizio svolto. Controlla anche l'anno sportivo selezionato nel menu a tendina.</p>`},
- {cat:'Domande frequenti', r:'tutti', t:'Il giudice registrato su arco.swen non viene riconosciuto', c:`<p>Il confronto usa "COGNOME NOME" (o "NOME COGNOME") esattamente come nell'elenco giudici. Se sul portale c'è un refuso o un secondo nome, la gara finisce tra i "non riconosciuti": crea la convocazione a mano dalla scheda della gara.</p>`},
+ {cat:'Domande frequenti', r:'tutti', t:'I conteggi del report non tornano (un servizio svolto non viene contato)', c:`<p>Conta solo una convocazione in stato <b>svolta</b>. Se il giudice è registrato sul portale arco.swen, basta lanciare <b>Sincronizza → Calendario gare</b> (o Report → arco.swen → Riconcilia ora): la convocazione viene creata o chiusa automaticamente. Se la gara non è su arco.swen o il giudice registrato è diverso, chiudi la convocazione dalla Home (Gare passate da chiudere → Svolta) o creala dalla scheda della gara con stato "Confermata direttamente" e poi segnala Svolta. Controlla anche l'anno sportivo selezionato nel menu a tendina.</p>`},
+ {cat:'Domande frequenti', r:'tutti', t:'Il giudice registrato su arco.swen non viene riconosciuto', c:`<p>Il confronto usa "COGNOME NOME" (o "NOME COGNOME"), ignorando maiuscole e spazi doppi. Se sul portale c'è un refuso o un nome diverso da quello in elenco (per esempio un secondo nome mancante), la gara finisce tra i "non riconosciuti": correggi il nome del giudice in elenco perché coincida con l'albo arco.swen, oppure crea la convocazione a mano dalla scheda della gara.</p>`},
  {cat:'Domande frequenti', r:'tutti', t:'Ho sbagliato a segnare "Assente"', c:`<p>Dalla scheda della gara annulla la convocazione (✕) e ricreala con stato "Confermata direttamente", poi segnala Svolta. Lo storico conserva entrambe le operazioni.</p>`},
  {cat:'Domande frequenti', r:'tutti', t:'Posso lavorare senza connessione?', c:`<p>Le schermate già aperte restano visibili, ma qualsiasi modifica (disponibilità, risposte, rimborsi) richiede la connessione: se salvi senza rete compare un errore e l'operazione non viene registrata.</p>`},
  {cat:'Domande frequenti', r:'tutti', t:'Chi vede i miei dati?', c:`<p>Tutti gli utenti vedono nome, qualifica e convocazioni dei colleghi (serve per conoscere la squadra di gara). Contatti, scadenze, rimborsi e referti sono visibili solo a te e al comitato. Le regole di accesso sono applicate dal database, non solo dall'interfaccia.</p>`}
