@@ -11,7 +11,7 @@ const APP = require('path').join(__dirname,'..');
     const page = await ctx.newPage();
     page.on('pageerror', e => errors.push('PAGEERROR: ' + e.message));
     page.on('console', m => { if (m.type()==='error') errors.push('CONSOLE: ' + m.text()); });
-    await page.route('**/supabase-js@2/**', r => r.fulfill({ contentType:'application/javascript', body: fs.readFileSync(__dirname+'/mock-supabase.js','utf8') }));
+    await page.route('**/supabase-js@*/**', r => r.fulfill({ contentType:'application/javascript', body: fs.readFileSync(__dirname+'/mock-supabase.js','utf8') }));
     await page.route('**/xlsx/**', r => r.fulfill({ contentType:'application/javascript', body: fs.readFileSync(require.resolve('xlsx/dist/xlsx.full.min.js'),'utf8') }));
     await page.route('**/*', r => { const u=r.request().url(); if(u.startsWith('http://localhost')||u.startsWith('file://')) r.continue(); else if(/supabase-js|xlsx/.test(u)) r.fallback(); else r.fulfill({status:200, body:''}); });
     await page.goto('http://localhost:8765/index.html');
@@ -31,6 +31,11 @@ const APP = require('path').join(__dirname,'..');
   for (const t of ['gare','giudici','rimborsi','report','impostazioni']) { await page.evaluate(k=>go(k), t); await page.waitForTimeout(150); await shot(page,'02-'+t); }
   for (const r of ['giudici','mantenimento','copertura','riconcilia','referti']) { await page.evaluate(k=>{S.filtri.report=k;go('report')}, r); await page.waitForTimeout(150); await shot(page,'03-report-'+r); }
   // modali
+  await page.evaluate(()=>{S.filtri.gareSez='aggiornamenti';go('gare')}); await page.waitForTimeout(150); await shot(page,'03b-aggiornamenti');
+  await page.evaluate(()=>openCorso('k1')); await page.waitForTimeout(150); await shot(page,'03c-corso');
+  await page.evaluate(()=>setPresenzaComitato('p2','presente','k1')); await page.waitForTimeout(300);
+  await page.evaluate(()=>$('modals').innerHTML=''); await page.evaluate(()=>corsoForm()); await page.waitForTimeout(150); await page.fill('#kf-titolo','Corso nuovo'); await shot(page,'03d-corso-form'); await page.click('.modal-bg:last-child .actions >> text=Salva'); await page.waitForTimeout(400); await shot(page,'03e-dopo-corso');
+  await page.evaluate(()=>{S.filtri.gareSez='gare';go('gare')});
   await page.evaluate(()=>openGara('ga1')); await page.waitForTimeout(150); await shot(page,'04-gara');
   await page.evaluate(()=>assegnaDlg('ga1')); await page.waitForTimeout(150); await shot(page,'05-assegna');
   await page.evaluate(()=>assegnaConferma('ga1','g2')); await page.waitForTimeout(150); await shot(page,'06-assegna-conferma');
@@ -64,6 +69,8 @@ const APP = require('path').join(__dirname,'..');
   await page.waitForSelector('#app:not(.hidden)'); await page.waitForTimeout(300);
   await shot(page,'30-home-giudice');
   for (const t of ['gare','convocazioni','profilo']) { await page.evaluate(k=>go(k), t); await page.waitForTimeout(150); await shot(page,'31-'+t); }
+  await page.evaluate(()=>{S.filtri.gareSez='aggiornamenti';go('gare')}); await page.waitForTimeout(150); await shot(page,'31b-aggiornamenti-giudice');
+  await page.evaluate(()=>setPresenza('k1','partecipa')); await page.waitForTimeout(300); await page.evaluate(()=>openCorso('k1')); await page.waitForTimeout(150); await shot(page,'31c-corso-giudice'); await page.evaluate(()=>$('modals').innerHTML=''); await page.evaluate(()=>{S.filtri.gareSez='gare'});
   await page.evaluate(()=>setDisp('ga1','non_disponibile')); await page.waitForTimeout(300); await page.evaluate(()=>go('gare')); await shot(page,'32-disp');
   await page.evaluate(()=>rimborsoForm('c3')); await page.waitForTimeout(300); await shot(page,'33-rimborso-giudice');
   await page.evaluate(()=>$('modals').innerHTML=''); await page.evaluate(()=>giudiceForm('g2',true)); await page.waitForTimeout(150); await shot(page,'34-miei-dati');
@@ -72,8 +79,8 @@ const APP = require('path').join(__dirname,'..');
   // ---- NON COLLEGATO ----
   page = await newPage();
   await page.fill('#li-email','nuovo@test.it'); await page.fill('#li-pass','x'); await page.click('text=Accedi');
-  await page.waitForSelector('#app:not(.hidden)'); await page.waitForTimeout(300); await shot(page,'40-non-collegato');
-  for (const t of ['gare','convocazioni','profilo']) { await page.evaluate(k=>go(k), t); await page.waitForTimeout(100); }
+  await page.waitForSelector('#app:not(.hidden)'); await page.waitForTimeout(300); await shot(page,'40-ospite');
+  if(!(await page.textContent('#view')).includes('attesa di attivazione')) errors.push('OSPITE: schermata di attesa non mostrata');
 
   console.log('ERRORS', errors.length); errors.forEach(e=>console.log(e));
   await browser.close(); srv.close();

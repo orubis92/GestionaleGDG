@@ -78,6 +78,7 @@ create table if not exists gare (
   origine                 text not null default 'manuale' check (origine in ('swen','manuale')),
   giudice_swen            text,                               -- nome giudice registrato su arco.swen
   swen_stato              text,                               -- Inserito/Aperto/Chiuso
+  swen_classifica         boolean,                            -- isClassificaCalcolata sul portale (gara effettivamente svolta)
   swen_partecipanti       int,
   swen_updated_at         timestamptz,
   ultima_sync             timestamptz,
@@ -92,11 +93,15 @@ create index if not exists gare_anno_idx on gare (anno_sportivo);
 create table if not exists profili (
   id          uuid primary key references auth.users (id) on delete cascade,
   email       text,
-  ruolo       text not null default 'giudice' check (ruolo in ('comitato','giudice')),
+  ruolo       text not null default 'ospite' check (ruolo in ('comitato','giudice','ospite')),
   giudice_id  uuid references giudici (id) on delete set null,
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
 );
+-- v1.3: gli account nuovi nascono "ospite" (nessun accesso ai dati) finché il comitato non li attiva
+alter table profili drop constraint if exists profili_ruolo_check;
+alter table profili add constraint profili_ruolo_check check (ruolo in ('comitato','giudice','ospite'));
+alter table profili alter column ruolo set default 'ospite';
 
 -- Disponibilità dichiarate dai giudici
 create table if not exists disponibilita (
@@ -152,6 +157,35 @@ create table if not exists aggiornamenti (
   note        text,
   created_at  timestamptz not null default now()
 );
+
+-- Corsi, aggiornamenti tecnici e riunioni organizzati dal comitato (v1.4) — art. 10 bis
+create table if not exists corsi (
+  id           uuid primary key default gen_random_uuid(),
+  titolo       text not null,
+  tipo         text not null default 'aggiornamento' check (tipo in ('aggiornamento','corso','riunione','altro')),
+  data         date not null,
+  data_fine    date,
+  ore          numeric(5,1),
+  luogo        text,
+  descrizione  text,
+  obbligatorio boolean not null default false,
+  stato        text not null default 'programmato' check (stato in ('programmato','svolto','annullato')),
+  created_at   timestamptz not null default now(),
+  updated_at   timestamptz not null default now()
+);
+-- Inviti e presenze: il comitato invita (tutti i giudici attivi), il giudice dichiara se partecipa, il comitato segna la presenza
+create table if not exists corsi_presenze (
+  id          uuid primary key default gen_random_uuid(),
+  corso_id    uuid not null references corsi (id) on delete cascade,
+  giudice_id  uuid not null references giudici (id) on delete cascade,
+  stato       text not null default 'invitato'
+              check (stato in ('invitato','partecipa','non_partecipa','presente','assente','giustificato')),
+  note        text,
+  updated_at  timestamptz not null default now(),
+  unique (corso_id, giudice_id)
+);
+alter table corsi          enable row level security;
+alter table corsi_presenze enable row level security;
 
 -- Rimborsi (uno per convocazione) — art. 16
 create table if not exists rimborsi (
@@ -220,10 +254,18 @@ create table if not exists sync_log (
 -- Vero per i membri del comitato. Vero anche quando non c'è un utente loggato
 -- (SQL Editor, service role, Edge Function): quel contesto è amministrativo per definizione;
 -- gli utenti anonimi non arrivano qui perché nessuna policy è concessa al ruolo anon.
+-- v1.4: il contesto senza utente vale come comitato SOLO se non è il ruolo anon (chiave pubblica senza login).
 create or replace function is_comitato() returns boolean
 language sql stable security definer set search_path = public as $$
-  select auth.uid() is null
+  select (auth.uid() is null and coalesce(auth.role(),'') <> 'anon')
       or exists (select 1 from profili where id = auth.uid() and ruolo = 'comitato');
+$$;
+
+-- Vero per gli account attivati dal comitato (o per il contesto amministrativo senza utente)
+create or replace function is_attivo() returns boolean
+language sql stable security definer set search_path = public as $$
+  select (auth.uid() is null and coalesce(auth.role(),'') <> 'anon')
+      or exists (select 1 from profili where id = auth.uid() and ruolo in ('comitato','giudice'));
 $$;
 
 create or replace function my_giudice_id() returns uuid
@@ -242,21 +284,20 @@ end $$;
 do $$
 declare t text;
 begin
-  foreach t in array array['giudici','gare','profili','disponibilita','convocazioni','rimborsi'] loop
+  foreach t in array array['giudici','gare','profili','disponibilita','convocazioni','rimborsi','corsi'] loop
     execute format('drop trigger if exists %I_updated_at on %I', t, t);
     execute format('create trigger %I_updated_at before update on %I for each row execute function set_updated_at()', t, t);
   end loop;
 end $$;
 
--- Creazione automatica del profilo alla registrazione di un utente Auth:
--- se esiste un giudice con la stessa email viene collegato; ruolo iniziale "giudice".
+-- Creazione automatica del profilo alla registrazione di un utente Auth.
+-- v1.3: ruolo "ospite" e nessun collegamento automatico: l'attivazione (ruolo + giudice) la fa il comitato
+-- dall'app, che mostra come suggerimento l'eventuale giudice con la stessa email.
 create or replace function handle_new_user() returns trigger
 language plpgsql security definer set search_path = public as $$
-declare g uuid;
 begin
-  select id into g from giudici where lower(email) = lower(new.email) limit 1;
   insert into profili (id, email, ruolo, giudice_id)
-  values (new.id, new.email, 'giudice', g)
+  values (new.id, new.email, 'ospite', null)
   on conflict (id) do nothing;
   return new;
 end $$;
@@ -366,6 +407,39 @@ drop trigger if exists convocazioni_storico_trg on convocazioni;
 create trigger convocazioni_storico_trg after insert or update on convocazioni
   for each row execute function convocazioni_storico_fn();
 
+-- Presenze ai corsi: il giudice cambia solo la propria dichiarazione (partecipa / non partecipa)
+-- e solo finché il comitato non ha registrato l'esito
+create or replace function presenze_guard() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  if not is_comitato() then
+    if old.giudice_id is distinct from my_giudice_id() then raise exception 'Non autorizzato'; end if;
+    if old.stato not in ('invitato','partecipa','non_partecipa') then raise exception 'Presenza già registrata dal comitato'; end if;
+    if new.stato not in ('partecipa','non_partecipa') then raise exception 'Il giudice può solo dichiarare se partecipa'; end if;
+    if new.giudice_id <> old.giudice_id or new.corso_id <> old.corso_id then raise exception 'Non autorizzato'; end if;
+  end if;
+  new.updated_at := now();
+  return new;
+end $$;
+drop trigger if exists presenze_guard_trg on corsi_presenze;
+create trigger presenze_guard_trg before update on corsi_presenze
+  for each row execute function presenze_guard();
+
+-- Invita tutti i giudici attivi a un corso (idempotente)
+create or replace function invita_tutti(p_corso uuid) returns int
+language plpgsql security definer set search_path = public as $$
+declare n int;
+begin
+  if not is_comitato() then raise exception 'Operazione riservata al comitato'; end if;
+  insert into corsi_presenze (corso_id, giudice_id)
+  select p_corso, g.id from giudici g
+   where g.attivo and not exists (select 1 from corsi_presenze p where p.corso_id = p_corso and p.giudice_id = g.id);
+  get diagnostics n = row_count;
+  return n;
+end $$;
+grant execute on function invita_tutti(uuid) to authenticated;
+revoke execute on function invita_tutti(uuid) from public, anon;
+
 -- Rimborso: calcolo totale + regole di modifica
 create or replace function rimborsi_guard() returns trigger
 language plpgsql security definer set search_path = public as $$
@@ -427,7 +501,9 @@ select g.id, g.cognome, g.nome, g.qualifica, g.in_affiancamento, g.attivo, g.reg
          where c.giudice_id = g.id and c.stato = 'svolta'
            and x.data_inizio >= current_date - interval '12 months')            as servizi_12m,
        (select count(*) from aggiornamenti a
-         where a.giudice_id = g.id and a.data >= current_date - interval '12 months') as aggiornamenti_12m,
+         where a.giudice_id = g.id and a.data >= current_date - interval '12 months')
+       + (select count(*) from corsi_presenze p join corsi k on k.id = p.corso_id
+         where p.giudice_id = g.id and p.stato = 'presente' and k.data >= current_date - interval '12 months') as aggiornamenti_12m,
        (select max(x.data_inizio) from convocazioni c join gare x on x.id = c.gara_id
          where c.giudice_id = g.id and c.stato = 'svolta')                        as ultimo_servizio,
        (select count(*) from convocazioni c
@@ -478,16 +554,16 @@ begin
   end loop;
 end $$;
 
--- giudici: tutti gli utenti autenticati leggono (serve per vedere i colleghi in gara);
+-- giudici: gli account attivati leggono (serve per vedere i colleghi in gara); gli ospiti non leggono nulla;
 -- scrive il comitato; il giudice aggiorna la propria riga (campi protetti da trigger)
-create policy giudici_select on giudici for select to authenticated using (true);
+create policy giudici_select on giudici for select to authenticated using (is_attivo());
 create policy giudici_insert on giudici for insert to authenticated with check (is_comitato());
 create policy giudici_update on giudici for update to authenticated
   using (is_comitato() or id = my_giudice_id()) with check (is_comitato() or id = my_giudice_id());
 create policy giudici_delete on giudici for delete to authenticated using (is_comitato());
 
 -- gare: lettura a tutti, scrittura comitato
-create policy gare_select on gare for select to authenticated using (true);
+create policy gare_select on gare for select to authenticated using (is_attivo());
 create policy gare_write  on gare for all    to authenticated using (is_comitato()) with check (is_comitato());
 
 -- profili: ognuno vede il proprio; il comitato vede e gestisce tutti
@@ -495,27 +571,33 @@ create policy profili_select on profili for select to authenticated using (id = 
 create policy profili_write  on profili for all    to authenticated using (is_comitato()) with check (is_comitato());
 
 -- disponibilità: lettura a tutti; scrittura propria o comitato
-create policy disp_select on disponibilita for select to authenticated using (true);
+create policy disp_select on disponibilita for select to authenticated using (is_attivo());
 create policy disp_write  on disponibilita for all to authenticated
   using (is_comitato() or giudice_id = my_giudice_id())
   with check (is_comitato() or giudice_id = my_giudice_id());
 
 -- convocazioni: lettura a tutti (squadra di gara visibile); insert/delete comitato;
 -- update comitato o proprio giudice (transizioni controllate dal trigger)
-create policy conv_select on convocazioni for select to authenticated using (true);
+create policy conv_select on convocazioni for select to authenticated using (is_attivo());
 create policy conv_insert on convocazioni for insert to authenticated with check (is_comitato());
 create policy conv_update on convocazioni for update to authenticated
   using (is_comitato() or giudice_id = my_giudice_id())
   with check (is_comitato() or giudice_id = my_giudice_id());
 create policy conv_delete on convocazioni for delete to authenticated using (is_comitato());
 
-create policy storico_select on convocazioni_storico for select to authenticated using (true);
+create policy storico_select on convocazioni_storico for select to authenticated using (is_attivo());
 
--- aggiornamenti: lettura a tutti; scrittura comitato o proprio
-create policy agg_select on aggiornamenti for select to authenticated using (true);
-create policy agg_write  on aggiornamenti for all to authenticated
-  using (is_comitato() or giudice_id = my_giudice_id())
-  with check (is_comitato() or giudice_id = my_giudice_id());
+-- aggiornamenti "esterni" (registrati a mano): lettura attivi; scrittura SOLO comitato (v1.4)
+create policy agg_select on aggiornamenti for select to authenticated using (is_attivo());
+create policy agg_write  on aggiornamenti for all to authenticated using (is_comitato()) with check (is_comitato());
+-- corsi e presenze (v1.4)
+create policy corsi_select on corsi for select to authenticated using (is_attivo());
+create policy corsi_write  on corsi for all    to authenticated using (is_comitato()) with check (is_comitato());
+create policy pres_select  on corsi_presenze for select to authenticated using (is_attivo());
+create policy pres_insert  on corsi_presenze for insert to authenticated with check (is_comitato());
+create policy pres_update  on corsi_presenze for update to authenticated
+  using (is_comitato() or giudice_id = my_giudice_id()) with check (is_comitato() or giudice_id = my_giudice_id());
+create policy pres_delete  on corsi_presenze for delete to authenticated using (is_comitato());
 
 -- rimborsi e referti: solo propri o comitato
 create policy rimb_all on rimborsi for all to authenticated
@@ -529,9 +611,9 @@ create policy ref_insert on referti for insert to authenticated
 create policy ref_delete on referti for delete to authenticated using (is_comitato());
 
 -- parametri e log: lettura a tutti, scrittura comitato
-create policy par_select on parametri for select to authenticated using (true);
+create policy par_select on parametri for select to authenticated using (is_attivo());
 create policy par_write  on parametri for all    to authenticated using (is_comitato()) with check (is_comitato());
-create policy log_select on sync_log  for select to authenticated using (true);
+create policy log_select on sync_log  for select to authenticated using (is_attivo());
 create policy log_write  on sync_log  for insert to authenticated with check (is_comitato());
 
 -- ---------------------------------------------------------------------
@@ -581,6 +663,7 @@ on conflict (anno_sportivo) do nothing;
 alter table giudici add column if not exists swen_id        int unique;   -- id nell'albo di arco.swen (/api/albo)
 alter table giudici add column if not exists tessera_numero text;         -- NumeroTesseraTecnico
 alter table giudici add column if not exists tessera_tipo   text;         -- TipoTesseraTecnico (es. QUADRI COPERTURA RCT)
+alter table gare    add column if not exists swen_classifica boolean;      -- v1.4
 
 -- Normalizza "COGNOME NOME" per il confronto con il campo Giudice di arco.swen
 create or replace function nome_norm(t text) returns text
@@ -599,11 +682,12 @@ create or replace function riconcilia_swen() returns jsonb
 language plpgsql security definer set search_path = public as $$
 declare
   r gare%rowtype; g giudici%rowtype; c convocazioni%rowtype;
-  n_chiuse int := 0; n_ins int := 0; n_conf int := 0; n_sv int := 0;
-  errs text[] := '{}'; passata boolean; nm text;
+  n_chiuse int := 0; n_ins int := 0; n_conf int := 0; n_sv int := 0; n_future int := 0;
+  errs text[] := '{}'; chiuse text[] := '{}'; passata boolean; nm text;
 begin
   if not is_comitato() then raise exception 'Operazione riservata al comitato'; end if;
 
+  -- le gare arco.swen passate ancora "in programma" si considerano svolte (evento avvenuto)
   update gare set stato = 'svolta'
    where origine = 'swen' and stato = 'programmata' and coalesce(data_fine, data_inizio) < current_date;
   get diagnostics n_chiuse = row_count;
@@ -618,6 +702,19 @@ begin
     begin
       select * into c from convocazioni
        where gara_id = r.id and giudice_id = g.id and stato not in ('rifiutata','annullata') limit 1;
+
+      if not passata then
+        -- GARA FUTURA (regola B, art. 7 quater: designa il comitato): mai creare;
+        -- se il comitato ha già proposto lo stesso giudice, il portale concorda → conferma
+        if found and c.stato in ('proposta','accettata') then
+          update convocazioni set stato = 'confermata' where id = c.id; n_conf := n_conf + 1;
+        elsif not found then
+          n_future := n_future + 1;   -- segnalato nel report, nessuna azione
+        end if;
+        continue;
+      end if;
+
+      -- GARA PASSATA: la registrazione sul portale è l'unica traccia → si crea la convocazione
       if not found then
         insert into convocazioni (gara_id, giudice_id, ruolo, deroga, note)
         values (r.id, g.id,
@@ -630,8 +727,11 @@ begin
       if c.stato in ('proposta','accettata') then
         update convocazioni set stato = 'confermata' where id = c.id; c.stato := 'confermata'; n_conf := n_conf + 1;
       end if;
-      if passata and c.stato = 'confermata' then
+      -- "svolta" automatica solo se il portale conferma che la gara si è tenuta (chiusa con classifica);
+      -- altrimenti resta "confermata" e compare in Home tra le gare da chiudere (svolta/assente)
+      if c.stato = 'confermata' and r.swen_stato = 'Chiuso' and coalesce(r.swen_classifica, false) then
         update convocazioni set stato = 'svolta' where id = c.id; n_sv := n_sv + 1;
+        chiuse := chiuse || (to_char(r.data_inizio,'DD/MM/YYYY') || ' ' || r.titolo || ' — ' || g.cognome || ' ' || g.nome);
       end if;
     exception when others then
       errs := errs || (to_char(r.data_inizio,'DD/MM/YYYY') || ' ' || r.titolo || ' — ' || r.giudice_swen || ': ' || sqlerrm);
@@ -639,6 +739,17 @@ begin
   end loop;
 
   return jsonb_build_object('gare_chiuse', n_chiuse, 'convocazioni_create', n_ins,
-                            'confermate', n_conf, 'svolte', n_sv, 'errori', to_jsonb(errs));
+                            'confermate', n_conf, 'svolte', n_sv, 'future_senza_convocazione', n_future,
+                            'chiuse_automaticamente', to_jsonb(chiuse), 'errori', to_jsonb(errs));
 end $$;
 grant execute on function riconcilia_swen() to authenticated;
+-- v1.4: nessuna funzione eseguibile con la chiave pubblica senza login
+revoke execute on function riconcilia_swen() from public, anon;
+revoke execute on function nome_norm(text) from anon;
+
+-- =====================================================================
+--  AGGIORNAMENTO v1.3 — account ospite
+--  Le modifiche sono già integrate sopra (tabella profili, is_attivo(), handle_new_user, policy).
+--  Gli account esistenti con ruolo 'giudice' non collegati a un giudice vengono riportati a 'ospite'.
+-- =====================================================================
+update profili set ruolo = 'ospite' where ruolo = 'giudice' and giudice_id is null;

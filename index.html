@@ -10,7 +10,7 @@
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icons/icon-192.png">
 <link rel="apple-touch-icon" href="icons/icon-192.png">
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.116.0/dist/umd/supabase.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
 :root{
@@ -153,7 +153,7 @@ details.guide summary{cursor:pointer;font-weight:600;padding:.4rem 0}
 @keyframes spin{to{transform:rotate(360deg)}}
 .section-title{display:flex;justify-content:space-between;align-items:center;margin:.9rem 0 .5rem}
 .section-title h3{margin:0}
-.chip-row{display:flex;gap:.35rem;flex-wrap:wrap;margin:.3rem 0}
+.chip-row{display:flex;gap:.35rem;flex-wrap:wrap;margin:.3rem 0;align-items:center}
 .chip{padding:.25rem .6rem;border-radius:999px;border:1px solid var(--line);background:#fff;font-size:.8rem;cursor:pointer}
 .chip.on{background:var(--navy);color:#fff;border-color:var(--navy)}
 .month-h{font-weight:700;color:var(--navy);margin:1rem 0 .3rem;text-transform:capitalize}
@@ -189,7 +189,7 @@ details.guide summary{cursor:pointer;font-weight:600;padding:.4rem 0}
       </div>
     </div>
     <div id="reg-form" class="hidden">
-      <p class="small">Registrati con l'email che il comitato ha nel tuo profilo giudice: verrai collegato automaticamente. Altrimenti il comitato ti collegherà dalle impostazioni.</p>
+      <p class="small">Usa l'email che il comitato conosce. Dopo la registrazione l'account resta in attesa finché il comitato non lo attiva collegandolo al tuo profilo giudice: ricevuto l'ok, basta rientrare.</p>
       <label class="f">Email</label><input class="f" id="rg-email" type="email">
       <label class="f">Password (min 8 caratteri)</label><input class="f" id="rg-pass" type="password">
       <button class="btn primary block mt" onclick="doRegister()">Crea account</button>
@@ -230,7 +230,7 @@ const CONFIG = {
   SUPABASE_URL: 'https://vscxesrpxmmyssrdegpm.supabase.co',
   SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZzY3hlc3JweG1teXNzcmRlZ3BtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk2MTk3MzYsImV4cCI6MjEwNTE5NTczNn0.cm98J7vJzY4qbxlsZ_9XpxYHTSvo7bMh4Sp7d1b_BeI'
 };
-const APP_VER = '1.2.0';
+const APP_VER = '1.4.0';
 /* ===================== COSTANTI DI DOMINIO ===================== */
 const QUALIFICHE = { regionale:'Giudice Regionale', nazionale:'Giudice Nazionale', emerito:'Giudice Emerito' };
 const RUOLI_GARA = { giudice:'Giudice', coordinatore:'Coordinatore', affiancamento:'Affiancamento' };
@@ -240,6 +240,9 @@ const STATI_RIMB = { da_compilare:'Da compilare', compilato:'Compilato', approva
 const STATI_RIMB_CLS = { da_compilare:'grey', compilato:'warn', approvato:'info', liquidato:'ok' };
 const MODALITA_RIMB = { km_spese:'Km × tariffa + spese', gettone_km:'Gettone + km', manuale:'Importo manuale' };
 const CLASSI_NAZIONALI = ['Nazionale','Internazionale','Europeo'];
+const TIPI_CORSO = { aggiornamento:'Aggiornamento tecnico', corso:'Corso', riunione:'Riunione tecnica', altro:'Altro' };
+const STATI_PRES = { invitato:'Invitato', partecipa:'Partecipa', non_partecipa:'Non partecipa', presente:'Presente', assente:'Assente', giustificato:'Giustificato' };
+const STATI_PRES_CLS = { invitato:'grey', partecipa:'info', non_partecipa:'warn', presente:'ok', assente:'err', giustificato:'grey' };
 const MESI = ['gennaio','febbraio','marzo','aprile','maggio','giugno','luglio','agosto','settembre','ottobre','novembre','dicembre'];
 const MESI_S = ['gen','feb','mar','apr','mag','giu','lug','ago','set','ott','nov','dic'];
 
@@ -247,7 +250,7 @@ const MESI_S = ['gen','feb','mar','apr','mag','giu','lug','ago','set','ott','nov
 let sb = null;                 // client supabase
 const S = {
   user:null, profilo:null, giudice:null, comitato:false,
-  giudici:[], gare:[], conv:[], disp:[], parametri:[], profili:[], aggiornamenti:[], statoGiudici:[],
+  giudici:[], gare:[], conv:[], disp:[], parametri:[], profili:[], aggiornamenti:[], statoGiudici:[], corsi:[], presenze:[],
   tab:'home', annoSportivo:null, filtri:{}, loaded:false
 };
 
@@ -257,7 +260,7 @@ const esc = (s)=> (s==null?'':String(s)).replace(/[&<>"']/g, c=>({'&':'&amp;','<
 const fmtD = (d)=>{ if(!d) return ''; const x=new Date(d+(d.length===10?'T00:00:00':'')); return x.toLocaleDateString('it-IT',{day:'2-digit',month:'2-digit',year:'numeric'}); };
 const fmtDL = (d)=>{ if(!d) return ''; const x=new Date(d+(d.length===10?'T00:00:00':'')); return x.toLocaleDateString('it-IT',{weekday:'short',day:'numeric',month:'long',year:'numeric'}); };
 const fmtE = (n)=> (Number(n)||0).toLocaleString('it-IT',{style:'currency',currency:'EUR'});
-const today = ()=> new Date().toISOString().slice(0,10);
+const today = ()=>{ const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; };
 const nomeG = (g)=> g ? `${g.cognome||''} ${g.nome||''}`.trim() : '';
 const isNaz = (cls)=> CLASSI_NAZIONALI.includes(cls||'');
 function annoSportivoDi(d){ const x=new Date(d+'T00:00:00'); const y=x.getFullYear(); return x.getMonth()>=8 ? `${y}/${y+1}` : `${y-1}/${y}`; }
@@ -337,25 +340,31 @@ async function afterLogin(user){
   S.comitato = S.profilo.ruolo==='comitato';
   $('login').classList.add('hidden'); $('app').classList.remove('hidden');
   $('btn-settings').classList.toggle('hidden', !S.comitato);
+  if(S.profilo.ruolo==='ospite'){ // account non ancora attivato dal comitato: nessun dato, nessuna scheda
+    $('hdr-sub').textContent = user.email; $('nav').innerHTML=''; S.loaded=true; go('attesa'); return;
+  }
   await loadAll();
   buildNav();
-  go(S.comitato?'home':'home');
+  go('home');
 }
+
 
 /* ===================== CARICAMENTO DATI ===================== */
 async function loadAll(){
   const q = (t, sel='*')=> sb.from(t).select(sel);
-  const [g, ga, c, d, p, agg, sg] = await Promise.all([
+  const [g, ga, c, d, p, agg, sg, ko, pr] = await Promise.all([
     q('giudici').order('cognome'),
     q('gare').order('data_inizio'),
     q('v_convocazioni'),
     q('disponibilita'),
     q('parametri'),
     q('aggiornamenti').order('data',{ascending:false}),
-    q('v_stato_giudici')
+    q('v_stato_giudici'),
+    q('corsi').order('data'),
+    q('corsi_presenze')
   ]);
-  for(const r of [g,ga,c,d,p,agg,sg]) if(r.error) return err(r.error);
-  S.giudici=g.data; S.gare=ga.data; S.conv=c.data; S.disp=d.data; S.parametri=p.data; S.aggiornamenti=agg.data; S.statoGiudici=sg.data;
+  for(const r of [g,ga,c,d,p,agg,sg,ko,pr]) if(r.error) return err(r.error);
+  S.giudici=g.data; S.gare=ga.data; S.conv=c.data; S.disp=d.data; S.parametri=p.data; S.aggiornamenti=agg.data; S.statoGiudici=sg.data; S.corsi=ko.data; S.presenze=pr.data;
   S.giudice = S.giudici.find(x=>x.id===S.profilo.giudice_id)||null;
   if(S.comitato){ const pr=await q('profili'); if(!pr.error) S.profili=pr.data; }
   if(!S.annoSportivo) S.annoSportivo = annoSportivoDi(today());
@@ -437,6 +446,10 @@ function avvisiAssegnazione(g, ga){
 }
 /* ===================== VISTE ===================== */
 const VIEWS = {};
+VIEWS.attesa = ()=>`<div class="card" style="max-width:520px;margin:2rem auto"><h2>Account in attesa di attivazione</h2>
+  <p>La registrazione con <b>${esc(S.user.email)}</b> è andata a buon fine. Per motivi di riservatezza l'accesso ai dati (gare, convocazioni, rimborsi) viene abilitato dal comitato, che collegherà questo account al tuo profilo di giudice.</p>
+  <p class="small muted">Se non ricevi l'attivazione entro qualche giorno, contatta il comitato indicando l'email con cui ti sei registrato.</p>
+  <div class="row mt"><button class="btn primary" onclick="location.reload()">Ricontrolla</button><button class="btn" onclick="doLogout()">Esci</button></div></div>`;
 
 function selAnno(){ return `<select onchange="S.annoSportivo=this.value;render()">${anniSportiviDisponibili().map(a=>`<option ${a===S.annoSportivo?'selected':''}>${a}</option>`).join('')}</select>`; }
 function garaItem(g, extra=''){
@@ -462,7 +475,9 @@ function homeComitato(){
   const daChiudere = S.conv.filter(c=>c.stato==='confermata' && c.data_inizio<oggi);
   const rimbDaApprovare = S.conv.filter(c=>c.rimborso_stato==='compilato');
   const problemi = S.giudici.filter(g=>g.attivo && semaforoGiudice(g).cls==='err');
-  const nonCollegati = S.profili.filter(p=>!p.giudice_id);
+  const nonCollegati = S.profili.filter(p=>p.ruolo==='ospite' || !p.giudice_id);
+  const portaleSenzaConv = S.gare.filter(g=>g.origine==='swen' && g.stato==='programmata' && g.data_inizio>=oggi && g.giudice_swen && matchGiudiceSwen(g.giudice_swen) && !convDiGara(g.id).some(c=>['proposta','accettata','confermata'].includes(c.stato)));
+  const corsiProssimi = S.corsi.filter(k=>k.stato==='programmato' && k.data>=oggi);
   return `
   <div class="kpis">
     <div class="kpi ${scoperte.length?'err':'ok'}" onclick="S.filtri.gare={scoperte:true};go('gare')" style="cursor:pointer"><b>${scoperte.length}</b><span>Gare future scoperte</span></div>
@@ -472,7 +487,9 @@ function homeComitato(){
     <div class="kpi ${rimbDaApprovare.length?'warn':''}" onclick="go('rimborsi')" style="cursor:pointer"><b>${rimbDaApprovare.length}</b><span>Rimborsi da approvare</span></div>
     <div class="kpi ${problemi.length?'err':'ok'}" onclick="go('giudici')" style="cursor:pointer"><b>${problemi.length}</b><span>Giudici con requisiti mancanti</span></div>
   </div>
-  ${nonCollegati.length?`<div class="alert warn">${nonCollegati.length} account registrat${nonCollegati.length>1?'i':'o'} non ancora collegat${nonCollegati.length>1?'i':'o'} a un giudice: <a href="#" onclick="go('impostazioni');return false">collega dalle impostazioni</a>.</div>`:''}
+  ${nonCollegati.length?`<div class="alert warn">${nonCollegati.length} account in attesa di attivazione (${nonCollegati.map(p=>esc(p.email||'')).join(', ')}): <a href="#" onclick="go('impostazioni');return false">attiva dalle impostazioni</a>.</div>`:''}
+  ${portaleSenzaConv.length?`<div class="alert info">${portaleSenzaConv.length} gar${portaleSenzaConv.length>1?'e future hanno':'a futura ha'} un giudice registrato su arco.swen ma nessuna convocazione qui: <a href="#" onclick="S.filtri.report='riconcilia';go('report');return false">verifica nel report</a> e convoca se il comitato è d'accordo.</div>`:''}
+  ${corsiProssimi.length?`<div class="card"><div class="section-title" style="margin-top:0"><h3>Prossimi aggiornamenti</h3><button class="btn sm" onclick="S.filtri.gareSez='aggiornamenti';go('gare')">Tutti</button></div>${corsiProssimi.slice(0,3).map(corsoItem).join('')}</div>`:''}
   ${accettate.length?`<div class="card"><h3>Da confermare</h3>${accettate.map(c=>`<div class="list-item"><div class="body"><div class="t">${esc(c.cognome)} ${esc(c.nome)} ${pill(RUOLI_GARA[c.ruolo])}</div><div class="s">${esc(c.titolo)} · ${fmtD(c.data_inizio)}</div></div><button class="btn sm ok" onclick="cambiaStato('${c.id}','confermata')">Conferma</button></div>`).join('')}</div>`:''}
   ${daChiudere.length?`<div class="card"><h3>Gare svolte da chiudere</h3><p class="small muted">Segna per ogni convocazione se il giudice era presente: alimenta i conteggi del report.</p>${daChiudere.map(c=>`<div class="list-item"><div class="body"><div class="t">${esc(c.cognome)} ${esc(c.nome)} ${pill(RUOLI_GARA[c.ruolo])}</div><div class="s">${esc(c.titolo)} · ${fmtD(c.data_inizio)}</div></div><div class="row"><button class="btn sm ok" onclick="cambiaStato('${c.id}','svolta')">Svolta</button><button class="btn sm danger" onclick="cambiaStato('${c.id}','assente')">Assente</button></div></div>`).join('')}</div>`:''}
   <div class="card"><div class="section-title" style="margin-top:0"><h3>Prossime gare</h3><button class="btn sm" onclick="go('gare')">Tutte</button></div>
@@ -491,6 +508,7 @@ function homeGiudice(){
   return `
   ${sem.cls!=='ok'?`<div class="alert ${sem.cls==='grey'?'warn':sem.cls}"><b>Requisiti</b><br>${sem.msgs.map(esc).join('<br>')}</div>`:''}
   ${proposte.length?`<div class="card"><h3>Convocazioni da rispondere</h3>${proposte.map(c=>convCard(c)).join('')}</div>`:''}
+  ${(()=>{ const inv=S.corsi.filter(k=>k.stato==='programmato'&&k.data>=oggi&&(miaPresenza(k.id)||{}).stato==='invitato'); return inv.length?`<div class="card"><h3>Aggiornamenti: dichiara se partecipi</h3>${inv.map(corsoItem).join('')}</div>`:''; })()}
   <div class="kpis">
     <div class="kpi"><b>${prossime.length}</b><span>Prossime gare</span></div>
     <div class="kpi ${daDichiarare.length?'warn':''}" onclick="go('gare')" style="cursor:pointer"><b>${daDichiarare.length}</b><span>Gare senza tua disponibilità</span></div>
@@ -500,8 +518,88 @@ function homeGiudice(){
   <div class="card"><h3>Le mie prossime gare</h3>${prossime.length?prossime.map(c=>convCard(c)).join(''):'<p class="muted">Nessuna convocazione confermata in programma.</p>'}</div>`;
 }
 
+/* ---------- CORSI E AGGIORNAMENTI ---------- */
+function presenzeCorso(cid){ return S.presenze.filter(p=>p.corso_id===cid); }
+function miaPresenza(cid){ return S.giudice ? presenzeCorso(cid).find(p=>p.giudice_id===S.giudice.id) : null; }
+function corsoItem(k){
+  const d=new Date(k.data+'T00:00:00'); const pr=presenzeCorso(k.id); const mia=miaPresenza(k.id);
+  const futuro=k.data>=today();
+  const stat = k.stato==='annullato' ? pill('Annullato','grey') : k.stato==='svolto' ? pill(`${pr.filter(p=>p.stato==='presente').length} presenti`,'ok') : pill(`${pr.filter(p=>p.stato==='partecipa').length} partecipano · ${pr.filter(p=>p.stato==='invitato').length} senza risposta`,'info');
+  let mio='';
+  if(S.giudice && mia){
+    if(['invitato','partecipa','non_partecipa'].includes(mia.stato) && k.stato==='programmato' && futuro)
+      mio=`<span class="avail-btns" onclick="event.stopPropagation()"><button class="${mia.stato==='partecipa'?'on-si':''}" onclick="setPresenza('${k.id}','partecipa')">Partecipo</button><button class="${mia.stato==='non_partecipa'?'on-no':''}" onclick="setPresenza('${k.id}','non_partecipa')">Non partecipo</button></span>`;
+    else mio=pill(STATI_PRES[mia.stato],STATI_PRES_CLS[mia.stato]);
+  }
+  return `<div class="list-item clickable" onclick="openCorso('${k.id}')" style="cursor:pointer">
+    <div class="date"><b>${d.getDate()}</b><span>${MESI_S[d.getMonth()]}</span></div>
+    <div class="body"><div class="t">${esc(k.titolo)} ${k.obbligatorio?pill('obbligatorio','orange'):''}</div>
+      <div class="s">${TIPI_CORSO[k.tipo]||''}${k.ore?' · '+k.ore+' ore':''}${k.luogo?' · '+esc(k.luogo):''}</div>
+      <div class="chip-row" style="margin:.25rem 0 0">${stat} ${mio}</div></div></div>`;
+}
+async function setPresenza(cid, stato){
+  const mia=miaPresenza(cid); if(!mia) return;
+  const {error}=await sb.from('corsi_presenze').update({stato}).eq('id',mia.id); if(error) return err(error);
+  const r=await sb.from('corsi_presenze').select('*'); if(!r.error) S.presenze=r.data; render();
+}
+function corsiAnno(anno){ return S.corsi.filter(k=>annoSportivoDi(k.data)===anno); }
+function viewAggiornamenti(){
+  const list=sortBy(corsiAnno(S.annoSportivo), k=>k.data, true);
+  const fut=list.filter(k=>k.data>=today() && k.stato!=='annullato').reverse(), pas=list.filter(k=>k.data<today() || k.stato==='annullato');
+  return `${S.comitato?`<div class="row between mb"><p class="small muted" style="margin:0">Corsi, aggiornamenti tecnici e riunioni organizzati dal comitato (art. 10 bis). Alla creazione vengono invitati tutti i giudici attivi.</p><button class="btn sm primary" onclick="corsoForm()">+ Aggiornamento</button></div>`:'<p class="small muted">Eventi organizzati dal comitato. Dichiara se partecipi; la presenza viene registrata dal comitato e vale per il requisito annuale (art. 10 bis).</p>'}
+    <div class="month-h">In programma</div><div class="card">${fut.length?fut.map(corsoItem).join(''):'<p class="muted">Nessun evento in programma.</p>'}</div>
+    ${pas.length?`<div class="month-h">Svolti</div><div class="card">${pas.map(corsoItem).join('')}</div>`:''}`;
+}
+function openCorso(id){
+  const k=S.corsi.find(x=>x.id===id); if(!k) return;
+  const pr=presenzeCorso(id); const gname=(gid)=>nomeG(S.giudici.find(x=>x.id===gid));
+  const ord={partecipa:0,presente:0,invitato:1,giustificato:2,non_partecipa:3,assente:3};
+  const rows=sortBy(pr, p=>(ord[p.stato]??9)+'_'+gname(p.giudice_id));
+  const cnt=(st)=>pr.filter(p=>p.stato===st).length;
+  const mia=miaPresenza(id);
+  const html=`<p class="muted small">${fmtDL(k.data)}${k.data_fine&&k.data_fine!==k.data?' → '+fmtDL(k.data_fine):''}</p>
+    <div class="chip-row">${pill(TIPI_CORSO[k.tipo]||k.tipo)} ${k.obbligatorio?pill('obbligatorio','orange'):''} ${pill(k.stato==='programmato'?'In programma':k.stato==='svolto'?'Svolto':'Annullato', k.stato==='annullato'?'grey':'info')} ${k.ore?pill(k.ore+' ore','grey'):''}</div>
+    ${k.luogo?`<p><b>${esc(k.luogo)}</b></p>`:''}${k.descrizione?`<p class="small">${esc(k.descrizione)}</p>`:''}
+    ${mia&&!S.comitato?`<div class="alert ${mia.stato==='presente'?'ok':mia.stato==='assente'?'err':'info'}">La tua posizione: <b>${STATI_PRES[mia.stato]}</b>${['invitato','partecipa','non_partecipa'].includes(mia.stato)&&k.stato==='programmato'?`<div class="row mt"><button class="btn sm ok" onclick="setPresenza('${id}','partecipa');closeModal();openCorso('${id}')">Partecipo</button><button class="btn sm danger" onclick="setPresenza('${id}','non_partecipa');closeModal();openCorso('${id}')">Non partecipo</button></div>`:''}</div>`:''}
+    <div class="kpis"><div class="kpi"><b>${pr.length}</b><span>Invitati</span></div><div class="kpi"><b>${cnt('partecipa')}</b><span>Partecipano</span></div><div class="kpi ok"><b>${cnt('presente')}</b><span>Presenti</span></div><div class="kpi err"><b>${cnt('assente')}</b><span>Assenti</span></div></div>
+    ${S.comitato?`<div class="section-title"><h3>Presenze</h3><div class="row"><button class="btn sm" onclick="invitaTutti('${id}')">Invita nuovi giudici</button><button class="btn sm ok" onclick="segnaPartecipantiPresenti('${id}')">Presenti = chi partecipa</button></div></div>
+      ${rows.map(p=>`<div class="list-item"><div class="body"><div class="t">${esc(gname(p.giudice_id))}</div><div class="s">${pill(STATI_PRES[p.stato],STATI_PRES_CLS[p.stato])}${p.note?' · '+esc(p.note):''}</div></div>
+        <div class="row"><button class="btn sm ${p.stato==='presente'?'ok':''}" onclick="setPresenzaComitato('${p.id}','presente','${id}')">P</button><button class="btn sm ${p.stato==='assente'?'danger':''}" onclick="setPresenzaComitato('${p.id}','assente','${id}')">A</button><button class="btn sm" onclick="setPresenzaComitato('${p.id}','giustificato','${id}')">G</button></div></div>`).join('')||'<p class="muted small">Nessun invitato.</p>'}`
+    :`<div class="section-title"><h3>Partecipanti</h3></div><p class="small">${rows.filter(p=>['partecipa','presente'].includes(p.stato)).map(p=>esc(gname(p.giudice_id))).join(', ')||'<span class="muted">Nessuna adesione ancora.</span>'}</p>`}`;
+  const actions=[]; if(S.comitato) actions.push({t:'Modifica',fn:(m)=>{closeModal(m);corsoForm(id);}});
+  actions.push({t:'Chiudi',cls:'navy',fn:(m)=>closeModal(m)});
+  openModal(k.titolo, html, actions);
+}
+async function setPresenzaComitato(pid, stato, cid){ const {error}=await sb.from('corsi_presenze').update({stato}).eq('id',pid); if(error) return err(error); const r=await sb.from('corsi_presenze').select('*'); if(!r.error) S.presenze=r.data; closeModal(); openCorso(cid); }
+async function segnaPartecipantiPresenti(cid){ const ids=presenzeCorso(cid).filter(p=>p.stato==='partecipa').map(p=>p.id); if(!ids.length) return toast('Nessuno ha dichiarato di partecipare'); const {error}=await sb.from('corsi_presenze').update({stato:'presente'}).in('id',ids); if(error) return err(error); await sb.from('corsi').update({stato:'svolto'}).eq('id',cid); await reload(); closeModal(); openCorso(cid); toast(`${ids.length} presenze registrate`,'ok'); }
+async function invitaTutti(cid){ const {data,error}=await sb.rpc('invita_tutti',{p_corso:cid}); if(error) return err(error); toast(`${data} giudici invitati`,'ok'); await reload(); closeModal(); openCorso(cid); }
+function corsoForm(id){
+  const k=id?S.corsi.find(x=>x.id===id):{tipo:'aggiornamento',data:today(),stato:'programmato',obbligatorio:false};
+  const html=`<label class="f">Titolo</label><input class="f" id="kf-titolo" value="${esc(k.titolo||'')}" placeholder="es. Aggiornamento annuale GdG 2026/2027">
+    <div class="grid3"><div><label class="f">Tipo</label><select class="f" id="kf-tipo">${Object.entries(TIPI_CORSO).map(([a,b])=>`<option value="${a}" ${k.tipo===a?'selected':''}>${b}</option>`).join('')}</select></div><div><label class="f">Data</label><input class="f" type="date" id="kf-data" value="${k.data||''}"></div><div><label class="f">Data fine</label><input class="f" type="date" id="kf-df" value="${k.data_fine||''}"></div></div>
+    <div class="grid2"><div><label class="f">Ore</label><input class="f" type="number" step="0.5" id="kf-ore" value="${k.ore??''}"></div><div><label class="f">Luogo (o "online")</label><input class="f" id="kf-luogo" value="${esc(k.luogo||'')}"></div></div>
+    <label class="f">Descrizione / programma</label><textarea class="f" id="kf-desc">${esc(k.descrizione||'')}</textarea>
+    <div class="grid2"><div class="check"><input type="checkbox" id="kf-obb" ${k.obbligatorio?'checked':''}><label for="kf-obb">Obbligatorio (art. 10 bis)</label></div><div><label class="f">Stato</label><select class="f" id="kf-stato"><option value="programmato" ${k.stato==='programmato'?'selected':''}>In programma</option><option value="svolto" ${k.stato==='svolto'?'selected':''}>Svolto</option><option value="annullato" ${k.stato==='annullato'?'selected':''}>Annullato</option></select></div></div>
+    ${!id?'<p class="small muted">Al salvataggio tutti i giudici attivi vengono invitati e lo vedono nella loro Home.</p>':''}`;
+  const actions=[{t:'Annulla',fn:(m)=>closeModal(m)},{t:'Salva',cls:'primary',fn:async(m)=>{
+    const rec={titolo:$('kf-titolo').value.trim(), tipo:$('kf-tipo').value, data:$('kf-data').value, data_fine:$('kf-df').value||null, ore:$('kf-ore').value===''?null:+$('kf-ore').value, luogo:$('kf-luogo').value||null, descrizione:$('kf-desc').value||null, obbligatorio:$('kf-obb').checked, stato:$('kf-stato').value};
+    if(!rec.titolo||!rec.data) return toast('Titolo e data obbligatori','err');
+    if(id){ const {error}=await sb.from('corsi').update(rec).eq('id',id); if(error) return err(error); }
+    else { const {data,error}=await sb.from('corsi').insert(rec).select().single(); if(error) return err(error); const r=await sb.rpc('invita_tutti',{p_corso:data.id}); if(r.error) err(r.error); else toast(`Evento creato: ${r.data} giudici invitati`,'ok'); }
+    closeModal(m); await reload(); if(S.tab==='gare'){ S.filtri.gareSez='aggiornamenti'; render(); }
+  }}];
+  if(id) actions.unshift({t:'Elimina',cls:'danger',fn:(m)=>confirmDlg('Elimina evento','Eliminare l\'evento e tutte le presenze registrate?',async()=>{ const {error}=await sb.from('corsi').delete().eq('id',id); if(error) return err(error); closeModal(m); await reload(); },'danger')});
+  openModal(id?'Modifica evento':'Nuovo aggiornamento / corso', html, actions);
+}
+
 /* ---------- GARE ---------- */
 VIEWS.gare = ()=>{
+  const sez=S.filtri.gareSez||'gare';
+  const toggle=`<div class="chip-row mb"><span class="chip ${sez==='gare'?'on':''}" onclick="S.filtri.gareSez='gare';render()">Gare</span><span class="chip ${sez==='aggiornamenti'?'on':''}" onclick="S.filtri.gareSez='aggiornamenti';render()">Corsi e aggiornamenti${S.giudice?(()=>{const n=S.corsi.filter(k=>k.stato==='programmato'&&k.data>=today()&&(miaPresenza(k.id)||{}).stato==='invitato').length; return n?' <span class="pill err">'+n+'</span>':'';})():''}</span></div>`;
+  if(sez==='aggiornamenti') return `<div class="row between mb"><h2 style="margin:0">Corsi e aggiornamenti ${selAnno()}</h2></div>${toggle}${viewAggiornamenti()}`;
+  return VIEWS.gareList(toggle);
+};
+VIEWS.gareList = (toggle='')=>{
   const f=S.filtri.gare||(S.filtri.gare={});
   const anno=S.annoSportivo;
   let list=gareAnno(anno);
@@ -518,6 +616,7 @@ VIEWS.gare = ()=>{
       return `<span class="avail-btns" onclick="event.stopPropagation()"><button class="${d&&d.stato==='disponibile'?'on-si':''}" onclick="setDisp('${g.id}','disponibile')">Disponibile</button><button class="${d&&d.stato==='non_disponibile'?'on-no':''}" onclick="setDisp('${g.id}','non_disponibile')">Non disp.</button></span>`; } : ()=>'';
   return `
   <div class="row between mb"><h2 style="margin:0">Gare ${selAnno()}</h2>${S.comitato?`<div class="row"><button class="btn sm" onclick="syncDlg()">↻ Sincronizza</button><button class="btn sm primary" onclick="garaForm()">+ Gara</button></div>`:''}</div>
+  ${toggle}
   <div class="filters"><input class="search" placeholder="Cerca gara, società, comune…" value="${esc(f.q||'')}" oninput="S.filtri.gare.q=this.value;render()">
     <select onchange="S.filtri.gare.cls=this.value;render()"><option value="">Tutte le classificazioni</option>${classi.map(c=>`<option ${f.cls===c?'selected':''}>${esc(c)}</option>`).join('')}</select>
     <select onchange="S.filtri.gare.stato=this.value;render()"><option value="">Tutti gli stati</option><option value="programmata" ${f.stato==='programmata'?'selected':''}>In programma</option><option value="svolta" ${f.stato==='svolta'?'selected':''}>Svolte</option><option value="annullata" ${f.stato==='annullata'?'selected':''}>Annullate</option></select>
@@ -664,8 +763,9 @@ function openGiudice(id){
     Tessera RCT: <b>${g.scadenza_tessera?fmtD(g.scadenza_tessera):'—'}</b>${g.tessera_numero?' (n. '+esc(g.tessera_numero)+(g.tessera_tipo?', '+esc(g.tessera_tipo).toLowerCase():'')+')':''} · Certificato medico: <b>${g.scadenza_certificato?fmtD(g.scadenza_certificato):'—'}</b>${g.swen_id?' · <span class="muted">albo arco.swen #'+g.swen_id+'</span>':''}</p>
     ${g.note?`<p class="small"><i>${esc(g.note)}</i></p>`:''}
     <div class="kpis"><div class="kpi"><b>${s.servizi_12m||0}</b><span>Servizi 12 mesi</span></div><div class="kpi"><b>${s.aggiornamenti_12m||0}</b><span>Aggiornamenti 12 mesi</span></div><div class="kpi"><b>${mie.filter(c=>c.stato==='svolta').length}</b><span>Gare svolte totali</span></div><div class="kpi"><b>${s.ultimo_servizio?fmtD(s.ultimo_servizio):'—'}</b><span>Ultimo servizio</span></div></div>
-    <div class="section-title"><h3>Aggiornamenti tecnici</h3><button class="btn sm" onclick="aggForm('${id}')">+ Aggiungi</button></div>
-    ${agg.length?agg.map(a=>`<div class="list-item"><div class="body"><div class="t">${esc(a.descrizione)}</div><div class="s">${fmtD(a.data)}${a.ore?' · '+a.ore+' ore':''}</div></div><button class="btn sm danger" onclick="delAgg('${a.id}','${id}')">✕</button></div>`).join(''):'<p class="muted small">Nessun aggiornamento registrato.</p>'}
+    <div class="section-title"><h3>Aggiornamenti tecnici</h3><button class="btn sm" onclick="aggForm('${id}')">+ Esterno</button></div>
+    <p class="small muted">Le presenze ai corsi del comitato compaiono qui automaticamente; "+ Esterno" registra un aggiornamento seguito altrove (es. corso di altra federazione riconosciuto).</p>
+    ${listaAggiornamenti(id)}
     <div class="section-title"><h3>Convocazioni</h3></div>
     ${mie.length?mie.slice(0,30).map(c=>`<div class="list-item"><div class="body"><div class="t">${esc(c.titolo)}</div><div class="s">${fmtD(c.data_inizio)} · ${esc(c.classificazione||'')} · ${RUOLI_GARA[c.ruolo]}</div></div>${pill(STATI_CONV[c.stato],STATI_CONV_CLS[c.stato])}</div>`).join(''):'<p class="muted small">Nessuna convocazione.</p>'}`;
   openModal(nomeG(g), html, [{t:'Modifica',fn:(mid)=>{closeModal(mid);giudiceForm(id);}},{t:'Chiudi',cls:'navy',fn:(mid)=>closeModal(mid)}]);
@@ -696,8 +796,8 @@ function giudiceForm(id, self=false){
   openModal(id?(self?'I miei dati':'Modifica giudice'):'Nuovo giudice', html, actions);
 }
 function aggForm(jid){
-  openModal('Aggiornamento tecnico', `<label class="f">Data</label><input class="f" type="date" id="ag-data" value="${today()}"><label class="f">Descrizione</label><input class="f" id="ag-desc" placeholder="es. Aggiornamento annuale GdG 2026"><label class="f">Ore</label><input class="f" type="number" step="0.5" id="ag-ore">`,
-    [{t:'Annulla',fn:(m)=>closeModal(m)},{t:'Salva',cls:'primary',fn:async(m)=>{ const rec={giudice_id:jid, data:$('ag-data').value, descrizione:$('ag-desc').value.trim(), ore:+$('ag-ore').value||null}; if(!rec.data||!rec.descrizione) return toast('Data e descrizione obbligatorie','err'); const {error}=await sb.from('aggiornamenti').insert(rec); if(error) return err(error); closeModal(m); toast('Aggiornamento registrato','ok'); await reload(); if(S.comitato){ closeModal(); openGiudice(jid); } }}]);
+  openModal('Aggiornamento esterno', `<label class="f">Data</label><input class="f" type="date" id="ag-data" value="${today()}"><label class="f">Descrizione</label><input class="f" id="ag-desc" placeholder="es. Aggiornamento annuale GdG 2026"><label class="f">Ore</label><input class="f" type="number" step="0.5" id="ag-ore">`,
+    [{t:'Annulla',fn:(m)=>closeModal(m)},{t:'Salva',cls:'primary',fn:async(m)=>{ const rec={giudice_id:jid, data:$('ag-data').value, descrizione:$('ag-desc').value.trim(), ore:+$('ag-ore').value||null}; if(!rec.data||!rec.descrizione) return toast('Data e descrizione obbligatorie','err'); const {error}=await sb.from('aggiornamenti').insert(rec); if(error) return err(error); closeModal(m); toast('Aggiornamento registrato','ok'); await reload(); closeModal(); openGiudice(jid); }}]);
 }
 async function delAgg(id, jid){ const {error}=await sb.from('aggiornamenti').delete().eq('id',id); if(error) return err(error); await reload(); if(S.comitato){ closeModal(); openGiudice(jid); } }
 
@@ -812,10 +912,18 @@ VIEWS.profilo = ()=>{
     ${sem.msgs.length?`<div class="alert ${sem.cls==='ok'?'info':sem.cls==='grey'?'warn':sem.cls}">${sem.msgs.map(esc).join('<br>')}</div>`:'<div class="alert ok">Requisiti in regola.</div>'}</div>
   <div class="card"><div class="section-title" style="margin-top:0"><h3>I miei dati</h3><button class="btn sm" onclick="giudiceForm('${g.id}',true)">Modifica</button></div>
     <p class="small">${esc(g.email||'')} ${g.telefono?'· '+esc(g.telefono):''}<br>${esc([g.indirizzo,g.cap,g.comune,g.provincia].filter(Boolean).join(', '))}${g.societa?'<br>Società: '+esc(g.societa):''}</p></div>
-  <div class="card"><div class="section-title" style="margin-top:0"><h3>Aggiornamenti tecnici</h3><button class="btn sm" onclick="aggForm('${g.id}')">+ Aggiungi</button></div>
-    ${agg.length?agg.map(a=>`<div class="list-item"><div class="body"><div class="t">${esc(a.descrizione)}</div><div class="s">${fmtD(a.data)}${a.ore?' · '+a.ore+' ore':''}</div></div></div>`).join(''):'<p class="muted small">Nessun aggiornamento registrato.</p>'}</div>
+  <div class="card"><div class="section-title" style="margin-top:0"><h3>Aggiornamenti tecnici</h3><button class="btn sm" onclick="S.filtri.gareSez='aggiornamenti';go('gare')">Eventi in programma</button></div>
+    <p class="small muted">Le presenze vengono registrate dal comitato al termine di ogni evento.</p>
+    ${listaAggiornamenti(g.id)}</div>
   <p class="center small muted">GestionaleGDG v${APP_VER}</p>`;
 };
+function listaAggiornamenti(jid){
+  const pres=S.presenze.filter(p=>p.giudice_id===jid && p.stato==='presente').map(p=>{ const k=S.corsi.find(x=>x.id===p.corso_id)||{}; return {data:k.data, descrizione:(k.titolo||'')+' ('+(TIPI_CORSO[k.tipo]||'')+')', ore:k.ore, tipo:'corso'}; });
+  const est=S.aggiornamenti.filter(a=>a.giudice_id===jid).map(a=>({...a, tipo:'esterno'}));
+  const all=sortBy([...pres,...est], x=>x.data||'', true);
+  return all.length?all.map(a=>`<div class="list-item"><div class="body"><div class="t">${esc(a.descrizione)} ${a.tipo==='esterno'?pill('esterno','grey'):''}</div><div class="s">${fmtD(a.data)}${a.ore?' · '+a.ore+' ore':''}</div></div>${S.comitato&&a.tipo==='esterno'?`<button class="btn sm danger" onclick="delAgg('${a.id}','${jid}')">✕</button>`:''}</div>`).join(''):'<p class="muted small">Nessun aggiornamento registrato.</p>';
+}
+
 /* ---------- REPORT (comitato) ---------- */
 VIEWS.report = ()=>{
   const sez=S.filtri.report||'giudici';
@@ -862,20 +970,20 @@ REPORT.riconcilia=()=>{
     let stato, cls; if(!g.giudice_swen) { stato='Nessun giudice su arco.swen'; cls='grey'; } else if(!m){ stato='Giudice non riconosciuto'; cls='warn'; } else if(inConv){ stato='Coerente'; cls='ok'; } else if(conf.length){ stato='Diverso dalla convocazione'; cls='err'; } else { stato='Manca la convocazione'; cls='warn'; }
     return {g,m,conf,stato,cls}; });
   const daRic=rows.filter(r=>r.m && (!r.conf.length || (r.g.data_inizio<today() && r.conf.some(c=>c.stato==='confermata'))));
-  return `<p class="small muted">Confronto tra il giudice registrato dall'organizzatore su arco.swen e le convocazioni qui. La riconciliazione viene eseguita automaticamente a ogni sincronizzazione del calendario: crea le convocazioni mancanti, conferma le proposte e chiude come "svolte" le gare passate. Qui puoi rilanciarla a mano.</p>
+  return `<p class="small muted">Confronto tra il giudice registrato dall'organizzatore su arco.swen e le convocazioni qui. Per le gare <b>future</b> designa il comitato (art. 7 quater): la riconciliazione non crea nulla, conferma solo le proposte con cui il portale concorda; con "Convoca" puoi recepire la registrazione del portale. Per le gare <b>passate</b> crea la convocazione e la chiude come svolta solo se il portale ha la classifica calcolata.</p>
   <div class="kpis"><div class="kpi ok"><b>${rows.filter(r=>r.cls==='ok').length}</b><span>Coerenti</span></div><div class="kpi err"><b>${rows.filter(r=>r.cls==='err').length}</b><span>Discordanti</span></div><div class="kpi warn"><b>${rows.filter(r=>r.cls==='warn').length}</b><span>Da verificare</span></div><div class="kpi ${daRic.length?'warn':''}"><b>${daRic.length}</b><span>Da riconciliare</span></div></div>
   <button class="btn ${daRic.length?'primary':''} mb" onclick="importaStorico()">↻ Riconcilia ora</button>
   <div class="card tbl-wrap"><table class="tbl"><thead><tr><th>Data</th><th>Gara</th><th>Giudice su arco.swen</th><th>Convocati qui</th><th>Esito</th></tr></thead><tbody>
-  ${rows.map(r=>`<tr class="clickable" onclick="openGara('${r.g.id}')"><td>${fmtD(r.g.data_inizio)}</td><td>${esc(r.g.titolo)}</td><td>${esc(r.g.giudice_swen||'—')}</td><td>${esc(r.conf.map(c=>nomeG(S.giudici.find(x=>x.id===c.giudice_id))).join(', '))||'—'}</td><td>${pill(r.stato,r.cls)}</td></tr>`).join('')}</tbody></table></div>`;
+  ${rows.map(r=>`<tr class="clickable" onclick="openGara('${r.g.id}')"><td>${fmtD(r.g.data_inizio)}</td><td>${esc(r.g.titolo)}</td><td>${esc(r.g.giudice_swen||'—')}</td><td>${esc(r.conf.map(c=>nomeG(S.giudici.find(x=>x.id===c.giudice_id))).join(', '))||'—'}</td><td>${pill(r.stato,r.cls)} ${r.m&&!r.conf.length&&r.g.data_inizio>=today()&&r.g.stato==='programmata'?`<button class="btn sm primary" onclick="event.stopPropagation();assegnaConferma('${r.g.id}','${r.m.id}')">Convoca</button>`:''}</td></tr>`).join('')}</tbody></table></div>`;
 };
 async function importaStorico(){
-  confirmDlg('Riconcilia con arco.swen', 'Per ogni gara con un giudice registrato sul portale che corrisponde a un giudice in elenco: crea la convocazione se manca, conferma le proposte, chiude come "svolte" le gare passate. Le gare arco.swen passate ancora in programma vengono chiuse. Le regole del regolamento restano valide: i casi non riconciliabili vengono elencati.', async()=>{
+  confirmDlg('Riconcilia con arco.swen', 'Gare future: conferma le proposte del comitato con cui il portale concorda, nient\'altro. Gare passate: crea la convocazione del giudice registrato sul portale e la chiude come svolta solo se la gara risulta chiusa con classifica; altrimenti resta da chiudere in Home. Le regole del regolamento restano valide: i casi non riconciliabili vengono elencati.', async()=>{
     const res=await riconciliaSwen(); if(res) { toast('Riconciliazione eseguita','ok'); await reload(); if(res.errori&&res.errori.length) openModal('Casi non riconciliati', '<ul class="small">'+res.errori.map(e=>'<li>'+esc(e)+'</li>').join('')+'</ul>', [{t:'Chiudi',cls:'navy',fn:(m)=>closeModal(m)}]); }
   });
 }
 async function riconciliaSwen(){
   const {data,error}=await sb.rpc('riconcilia_swen'); if(error){ err(error); return null; }
-  toast(`Convocazioni create ${data.convocazioni_create} · confermate ${data.confermate} · svolte ${data.svolte} · gare chiuse ${data.gare_chiuse}`,'ok'); return data;
+  toast(`Create ${data.convocazioni_create} · confermate ${data.confermate} · svolte ${data.svolte} · future senza convocazione ${data.future_senza_convocazione}`,'ok'); return data;
 }
 REPORT.referti=()=>{
   const rows=sortBy(convAnno().filter(c=>['confermata','svolta'].includes(c.stato) && c.data_inizio<today()), c=>c.data_inizio, true);
@@ -902,8 +1010,9 @@ VIEWS.impostazioni = ()=>{
     <p class="small">Il calendario gare arriva da <b>arco.swen</b> (endpoint pubblico) e l'elenco giudici dall'<b>Albo Nazionale CSAIN</b> (Tiro con l'arco · 3D · Ufficiali di Gara). La sincronizzazione gira su una funzione Supabase; i dati inseriti dal comitato non vengono sovrascritti.</p>
     <div class="row"><button class="btn" onclick="syncDlg('swen')">↻ Calendario gare</button><button class="btn" onclick="syncDlg('albo')">↻ Albo giudici</button><button class="btn sm" onclick="syncLog()">Registro</button></div></div>
   <div class="card"><div class="section-title" style="margin-top:0"><h3>Account e ruoli</h3></div>
-    <p class="small muted">Ogni account registrato va collegato a un giudice. Il ruolo "Comitato" dà accesso completo.</p>
-    ${S.profili.map(pr=>{ const g=S.giudici.find(x=>x.id===pr.giudice_id); return `<div class="list-item"><div class="body"><div class="t">${esc(pr.email||'')} ${pr.ruolo==='comitato'?pill('comitato','navy'):pill('giudice')}</div><div class="s">${g?'→ '+esc(nomeG(g)):'<span style="color:var(--warn)">non collegato a un giudice</span>'}</div></div><button class="btn sm" onclick="profiloForm('${pr.id}')">Modifica</button></div>`; }).join('')}</div>
+    <p class="small muted">Un account nuovo nasce <b>ospite</b> e non vede nulla. Per attivarlo assegna il ruolo (Giudice o Comitato) e il profilo giudice collegato; l'app suggerisce il giudice con la stessa email. Il ruolo "Comitato" dà accesso completo.</p>
+    ${sortBy(S.profili, pr=>(pr.ruolo==='ospite'?'0':'1')+(pr.email||'')).map(pr=>{ const g=S.giudici.find(x=>x.id===pr.giudice_id); const sug=!g&&pr.email?S.giudici.find(x=>x.email&&x.email.toLowerCase()===pr.email.toLowerCase()):null;
+      return `<div class="list-item"><div class="body"><div class="t">${esc(pr.email||'')} ${pr.ruolo==='comitato'?pill('comitato','navy'):pr.ruolo==='ospite'?pill('da attivare','err'):pill('giudice')}</div><div class="s">${g?'→ '+esc(nomeG(g)):(sug?'<span style="color:var(--warn)">non collegato · suggerito: '+esc(nomeG(sug))+'</span>':'<span style="color:var(--warn)">non collegato a un giudice</span>')}</div></div><button class="btn sm ${pr.ruolo==='ospite'?'primary':''}" onclick="profiloForm('${pr.id}')">${pr.ruolo==='ospite'?'Attiva':'Modifica'}</button></div>`; }).join('')}</div>
   <div class="card"><h3>Guida e versione</h3><p class="small muted">La guida in linea (pulsante ? in alto) descrive ogni funzione e riporta le novità di ogni versione.</p><button class="btn" onclick="openGuide()">Apri la guida</button> <span class="small muted">GestionaleGDG v${APP_VER}</span></div>`;
 };
 function parametriForm(){
@@ -921,11 +1030,15 @@ function parametriForm(){
 }
 function profiloForm(pid){
   const pr=S.profili.find(x=>x.id===pid);
-  const html=`<p><b>${esc(pr.email||'')}</b></p>
-    <label class="f">Ruolo</label><select class="f" id="pr-ruolo"><option value="giudice" ${pr.ruolo==='giudice'?'selected':''}>Giudice</option><option value="comitato" ${pr.ruolo==='comitato'?'selected':''}>Comitato</option></select>
-    <label class="f">Giudice collegato</label><select class="f" id="pr-g"><option value="">— nessuno —</option>${sortBy(S.giudici,g=>g.cognome).map(g=>`<option value="${g.id}" ${pr.giudice_id===g.id?'selected':''}>${esc(nomeG(g))}</option>`).join('')}</select>`;
+  const sug=!pr.giudice_id&&pr.email?S.giudici.find(x=>x.email&&x.email.toLowerCase()===pr.email.toLowerCase()):null;
+  const selG=pr.giudice_id||(sug?sug.id:'');
+  const html=`<p><b>${esc(pr.email||'')}</b> ${pr.ruolo==='ospite'?pill('da attivare','err'):''}</p>
+    ${sug?`<div class="alert info small">Esiste un giudice con questa email: <b>${esc(nomeG(sug))}</b>. È preselezionato: verifica che sia la persona giusta prima di attivare.</div>`:''}
+    <label class="f">Ruolo</label><select class="f" id="pr-ruolo"><option value="ospite" ${pr.ruolo==='ospite'?'selected':''}>Ospite (nessun accesso)</option><option value="giudice" ${pr.ruolo==='giudice'||(pr.ruolo==='ospite'&&sug)?'selected':''}>Giudice</option><option value="comitato" ${pr.ruolo==='comitato'?'selected':''}>Comitato</option></select>
+    <label class="f">Giudice collegato</label><select class="f" id="pr-g"><option value="">— nessuno —</option>${sortBy(S.giudici,g=>g.cognome).map(g=>`<option value="${g.id}" ${selG===g.id?'selected':''}>${esc(nomeG(g))}</option>`).join('')}</select>`;
   openModal('Account', html, [{t:'Annulla',fn:(m)=>closeModal(m)},{t:'Salva',cls:'primary',fn:async(m)=>{
     if(pid===S.user.id && $('pr-ruolo').value!=='comitato') return toast('Non puoi togliere il ruolo comitato a te stesso','err');
+    if($('pr-ruolo').value==='giudice' && !$('pr-g').value) return toast('Un account Giudice deve essere collegato a un profilo giudice','err');
     const {error}=await sb.from('profili').update({ruolo:$('pr-ruolo').value, giudice_id:$('pr-g').value||null}).eq('id',pid); if(error) return err(error); closeModal(m); toast('Account aggiornato','ok'); await reload();
   }}]);
 }
@@ -957,6 +1070,8 @@ async function syncLog(){
    (1) la sezione GUIDE interessata, (2) CHANGELOG con la versione, (3) APP_VER e CACHE in sw.js.
    r: 'tutti' | 'comitato' | 'giudice'  — per chi è rilevante la sezione. */
 const CHANGELOG = [
+  {v:'1.4.0', d:'2026-09-17', items:['Corsi e aggiornamenti gestiti dal comitato (scheda Gare → Corsi e aggiornamenti): creazione dell\'evento con invito automatico a tutti i giudici attivi, dichiarazione di partecipazione da parte dei giudici, registrazione delle presenze da parte del comitato. I giudici non inseriscono più aggiornamenti da soli; il requisito dei 12 mesi si calcola dalle presenze (più eventuali aggiornamenti esterni registrati dal comitato).','Riconciliazione con arco.swen più prudente: per le gare future non crea convocazioni (designa il comitato), conferma solo le proposte con cui il portale concorda e segnala il resto con il pulsante Convoca; per le gare passate segna "svolta" solo se il portale ha la classifica calcolata.','Sicurezza: le funzioni di riconciliazione e invito non sono più eseguibili senza login.','Libreria Supabase fissata a una versione precisa; data "oggi" calcolata in ora locale.']},
+  {v:'1.3.0', d:'2026-09-17', items:['Nuovo stato "ospite": un account appena registrato non ha accesso a nessun dato finché il comitato non lo attiva (ruolo + profilo giudice) dalle impostazioni; il collegamento automatico per email è sostituito da un suggerimento da confermare.','Schermata di attesa per gli account non attivati; avviso in Home per il comitato con le email da attivare.']},
   {v:'1.2.0', d:'2026-09-17', items:['Albo giudici sincronizzato dal portale arco.swen (56 giudici di gara con società, comune, provincia, regione e numero tessera) al posto dell\'Albo Nazionale.','Riconciliazione automatica con arco.swen a ogni sincronizzazione del calendario: crea o conferma le convocazioni dal giudice registrato sul portale e chiude come "svolte" le gare passate, così i servizi vengono contati senza passaggi manuali.','Report → arco.swen: pulsante "Riconcilia ora" al posto dell\'importazione manuale.','Scheda giudice: numero e tipo tessera dall\'albo.']},
   {v:'1.1.0', d:'2026-09-17', items:['Guida in linea completa: pagina dedicata con ricerca, sezioni per ruolo, istruzioni passo passo, domande frequenti e registro versioni.','La registrazione indica esplicitamente l\'indirizzo dell\'app come destinazione del link di conferma email.']},
   {v:'1.0.0', d:'2026-09-17', items:['Prima versione: login, giudici, gare, disponibilità, convocazioni con le regole del Regolamento GdG rev 1.0, rimborsi a tre modalità, referti, report annuale, sincronizzazione arco.swen e Albo Nazionale.']}
@@ -967,9 +1082,9 @@ const GUIDE = [
   <p>I dati sono condivisi: tutti gli utenti vedono lo stesso calendario e le stesse convocazioni, aggiornate in tempo reale. L'app funziona da telefono, tablet e computer e si può installare come applicazione (vedi "Installare l'app").</p>`},
  {cat:'Per iniziare', r:'tutti', t:'Registrazione e accesso', c:`
   <ol>
-   <li>Apri l'app e scegli <b>Registrati</b>. Usa l'email che il comitato ha nel tuo profilo giudice: così il tuo account viene collegato automaticamente al tuo profilo.</li>
-   <li>Se richiesto, conferma l'email dal link ricevuto. Poi torna nell'app e <b>Accedi</b>.</li>
-   <li>Se dopo l'accesso vedi l'avviso "account non ancora collegato", il comitato lo collegherà dalle impostazioni: nel frattempo puoi consultare il calendario.</li>
+   <li>Apri l'app e scegli <b>Registrati</b> con la tua email e una password di almeno 8 caratteri.</li>
+   <li>Il nuovo account nasce <b>in attesa di attivazione</b>: vedi solo una schermata di cortesia, nessun dato. È voluto: l'accesso ai dati dei giudici lo abilita il comitato, che collega l'account al tuo profilo.</li>
+   <li>Quando il comitato ti ha attivato, premi <b>Ricontrolla</b> (o rientra): trovi le tue schede.</li>
   </ol>
   <p><b>Password dimenticata</b>: dal login, "Password dimenticata" invia un link via email; aprendolo dall'app compare la finestra per impostare la nuova password.</p>
   <p><b>Uscire</b>: pulsante ⏻ in alto a destra.</p>`},
@@ -981,6 +1096,7 @@ const GUIDE = [
  {cat:'Per iniziare', r:'tutti', t:'Ruoli: comitato e giudice', c:`
   <p><b>Comitato</b>: vede e gestisce tutto: giudici, gare, convocazioni, rimborsi, parametri, report, sincronizzazioni e account. Ha le schede Home, Gare, Giudici, Rimborsi, Report e l'icona ⚙ Impostazioni.</p>
   <p><b>Giudice</b>: dichiara le proprie disponibilità, risponde alle convocazioni, compila i rimborsi, carica i referti, aggiorna i propri contatti e registra gli aggiornamenti tecnici. Ha le schede Home, Gare, Convocazioni, Profilo.</p>
+  <p><b>Ospite</b>: è lo stato di ogni account appena registrato. Non vede nulla finché il comitato non gli assegna un ruolo e un profilo giudice.</p>
   <p>Un membro del comitato è anche un giudice: il suo account è collegato a un profilo giudice e riceve le convocazioni come gli altri; risponde alle proprie convocazioni dalla scheda della gara.</p>`},
  {cat:'Per iniziare', r:'tutti', t:'Anno sportivo e selettore dell\'anno', c:`
   <p>L'anno sportivo va dal <b>1° settembre al 31 agosto</b> (es. 2026/2027), come nel calendario arco.swen. Il menu a tendina accanto ai titoli (Gare, Rimborsi, Report, Convocazioni) cambia l'anno mostrato; l'anno scelto vale per tutte le schede finché non lo cambi.</p>
@@ -1018,11 +1134,15 @@ const GUIDE = [
   <p>Il comitato approva e poi liquida. Dopo l'approvazione il rimborso non è più modificabile dal giudice. Il totale è calcolato automaticamente.</p>`},
  {cat:'Giudice', r:'giudice', t:'Caricare il referto', c:`
   <p>Nella scheda Convocazioni, per le gare svolte, il pulsante <b>📄 Referto</b> permette di caricare una copia del referto (PDF o foto, max 10 MB). Serve come archivio del comitato: <b>l'invio ufficiale resta quello previsto dalla Commissione</b> (art. 14). Si possono caricare più file per la stessa gara.</p>`},
+ {cat:'Giudice', r:'giudice', t:'Corsi e aggiornamenti: dichiarare la partecipazione', c:`
+  <p>Gli aggiornamenti tecnici, i corsi e le riunioni sono organizzati dal comitato. Quando ne viene creato uno, sei automaticamente invitato: lo vedi in <b>Home</b> ("Aggiornamenti: dichiara se partecipi") e nella scheda <b>Gare → Corsi e aggiornamenti</b>.</p>
+  <ol><li>Premi <b>Partecipo</b> o <b>Non partecipo</b>. Puoi cambiare idea finché il comitato non registra le presenze.</li><li>Al termine dell'evento il comitato segna chi era presente: la tua posizione diventa <span class="pill ok">Presente</span>, <span class="pill err">Assente</span> o <span class="pill grey">Giustificato</span>.</li></ol>
+  <p>Solo le presenze registrate dal comitato contano per il requisito dell'art. 10 bis (almeno un aggiornamento ogni 12 mesi) e compaiono nel tuo Profilo. Non è più possibile inserire aggiornamenti da soli: se hai seguito un corso esterno riconosciuto, segnalalo al comitato che lo registra come "esterno".</p>`},
  {cat:'Giudice', r:'giudice', t:'Profilo, dati personali e aggiornamenti tecnici', c:`
   <p>La scheda <b>Profilo</b> mostra qualifica, requisiti di mantenimento con semaforo, dati di contatto e aggiornamenti tecnici.</p>
   <ul>
    <li><b>Modifica</b>: puoi aggiornare email, telefono, indirizzo di residenza (usato come riferimento per i km), società di appartenenza, data di nascita e le scadenze di tessera RCT e certificato medico. Qualifica, stato attivo e note sono gestiti dal comitato.</li>
-   <li><b>Aggiornamenti tecnici</b>: registra qui ogni aggiornamento seguito (data, descrizione, ore). Serve per il requisito dell'art. 10 bis: almeno un aggiornamento ogni 12 mesi.</li>
+   <li><b>Aggiornamenti tecnici</b>: elenco delle presenze registrate dal comitato ai corsi e degli eventuali aggiornamenti esterni riconosciuti. Serve per il requisito dell'art. 10 bis: almeno un aggiornamento ogni 12 mesi.</li>
   </ul>`},
 
  {cat:'Comitato', r:'comitato', t:'Home del comitato', c:`
@@ -1031,10 +1151,10 @@ const GUIDE = [
    <li><b>Gare future scoperte</b>: gare in programma con meno giudici confermati del fabbisogno (apre la scheda Gare già filtrata).</li>
    <li><b>Convocazioni in attesa di risposta</b>: proposte a cui il giudice non ha ancora risposto.</li>
    <li><b>Accettate da confermare</b>: elencate subito sotto con il pulsante Conferma.</li>
-   <li><b>Gare passate da chiudere</b>: convocazioni confermate di gare già svolte: segna <b>Svolta</b> o <b>Assente</b>. Passaggio importante: solo le convocazioni "svolte" contano nei report e nei requisiti.</li>
+   <li><b>Gare passate da chiudere</b>: convocazioni confermate di gare già svolte: segna <b>Svolta</b> o <b>Assente</b>. Solo le convocazioni "svolte" contano nei report e nei requisiti (per le gare arco.swen ci pensa la sincronizzazione).</li>
    <li><b>Rimborsi da approvare</b> e <b>Giudici con requisiti mancanti</b>.</li>
   </ul>
-  <p>Se ci sono account registrati non collegati a un giudice compare un avviso con il link alle impostazioni.</p>`},
+  <p>Se ci sono account registrati in attesa di attivazione compare un avviso con le email e il link alle impostazioni.</p>`},
  {cat:'Comitato', r:'comitato', t:'Gare: calendario, sincronizzazione e inserimento', c:`
   <p>La scheda <b>Gare</b> mostra le gare dell'anno sportivo selezionato, per mese. Filtri: ricerca libera, classificazione, stato, <i>Solo scoperte</i>, <i>Anche passate</i>. Ogni gara riporta quanti giudici sono confermati rispetto al fabbisogno (rosso se scoperta).</p>
   <p><b>↻ Sincronizza</b> importa il calendario da arco.swen (vedi "Sincronizzazioni"). <b>+ Gara</b> inserisce una gara a mano, per eventi non presenti sul portale.</p>
@@ -1061,10 +1181,14 @@ const GUIDE = [
    <li><b>Rifiuto</b> (art. 11.2): motivo obbligatorio.</li>
    <li><b>Requisiti</b>: avviso in fase di assegnazione se il giudice non è attivo, ha tessera o certificato scaduti o è fuori dai limiti di età.</li>
   </ul>`},
+ {cat:'Comitato', r:'comitato', t:'Corsi e aggiornamenti: creare eventi e registrare le presenze', c:`
+  <p>Scheda <b>Gare → Corsi e aggiornamenti</b> → <b>+ Aggiornamento</b>: titolo, tipo (aggiornamento tecnico, corso, riunione, altro), data, ore, luogo, programma, obbligatorio. Al salvataggio <b>tutti i giudici attivi vengono invitati</b> e lo vedono in Home; l'app riporta quanti partecipano e quanti non hanno risposto.</p>
+  <p>Apri l'evento per la lista degli invitati con la loro dichiarazione. Dopo l'evento registra le presenze con i pulsanti <b>P</b> (presente), <b>A</b> (assente), <b>G</b> (giustificato) accanto a ogni nome, oppure <b>Presenti = chi partecipa</b> per segnare in un colpo tutti quelli che avevano aderito (l'evento passa a "svolto"); poi correggi le eccezioni. <b>Invita nuovi giudici</b> aggiunge chi è stato inserito in elenco dopo la creazione dell'evento.</p>
+  <p>Le presenze registrate alimentano il conteggio "aggiornamenti negli ultimi 12 mesi" del report Mantenimento. Per un corso seguito altrove e riconosciuto, dalla scheda del giudice usa <b>+ Esterno</b>. I giudici non possono più inserire aggiornamenti da soli.</p>`},
  {cat:'Comitato', r:'comitato', t:'Giudici: elenco, scheda e requisiti', c:`
   <p>La scheda <b>Giudici</b> elenca i giudici attivi con semaforo, qualifica, provincia, società, servizi e aggiornamenti negli ultimi 12 mesi e gli eventuali avvisi. Filtri: ricerca, qualifica, <i>Con avvisi</i>, <i>Anche non attivi</i>. <b>⬇ Excel</b> esporta l'elenco completo.</p>
   <p><b>Semaforo</b>: 🟢 in regola · 🟡 avviso (servizi o aggiornamenti sotto il minimo, scadenze entro 30 giorni) · 🔴 requisito mancante (tessera o certificato scaduti, inattività oltre il limite, età fuori range) · ⚪ non attivo.</p>
-  <p><b>Scheda giudice</b>: contatti, scadenze, contatori, aggiornamenti tecnici (con + Aggiungi) e storico convocazioni. <b>Modifica</b> apre tutti i campi, compresi quelli riservati al comitato: qualifica, "Giudice dal", in affiancamento e gare richieste, attivo, macroarea, ID albo, note.</p>
+  <p><b>Scheda giudice</b>: contatti, scadenze, contatori, aggiornamenti tecnici (presenze ai corsi + eventuali esterni con "+ Esterno") e storico convocazioni. <b>Modifica</b> apre tutti i campi, compresi quelli riservati al comitato: qualifica, "Giudice dal", in affiancamento e gare richieste, attivo, macroarea, ID albo, note.</p>
   <p><b>+ Giudice</b> inserisce a mano un giudice non presente nell'albo. <b>Elimina</b> cancella anche tutto lo storico: preferisci "non attivo".</p>
   <p><b>↻ Albo</b> sincronizza con l'Albo Nazionale (vedi "Sincronizzazioni").</p>`},
  {cat:'Comitato', r:'comitato', t:'Rimborsi: approvazione e liquidazione', c:`
@@ -1081,17 +1205,20 @@ const GUIDE = [
    <li><b>Attività giudici</b>: per ogni giudice gare svolte (con barra), suddivise per classificazione, coordinamenti, affiancamenti, disponibilità date, convocazioni ricevute, rifiuti, assenze, rimborsi. Contatori: servizi totali, media per giudice, giudici mai convocati, rifiuti.</li>
    <li><b>Mantenimento</b>: verifica dei requisiti del regolamento (art. 10 bis, 6, 3, 13, 20) per ogni giudice attivo, con semaforo e note. Ordinato dai casi più gravi.</li>
    <li><b>Copertura</b>: gare dell'anno con richiesti/confermati/disponibilità, gare scoperte in evidenza, riepilogo per regione, percentuale di copertura.</li>
-   <li><b>arco.swen</b>: confronto tra il giudice registrato dall'organizzatore sul portale e le convocazioni qui: <i>Coerente</i>, <i>Diverso dalla convocazione</i>, <i>Manca la convocazione</i>, <i>Giudice non riconosciuto</i> (nome sul portale diverso da cognome+nome in elenco). <b>Riconcilia ora</b> esegue la riconciliazione automatica descritta in "Sincronizzazioni"; cambiando l'anno sportivo si ricostruisce anche lo storico degli anni precedenti.</li>
+   <li><b>arco.swen</b>: confronto tra il giudice registrato dall'organizzatore sul portale e le convocazioni qui: <i>Coerente</i>, <i>Diverso dalla convocazione</i>, <i>Manca la convocazione</i> (per le gare future con il pulsante <b>Convoca</b>), <i>Giudice non riconosciuto</i>. <b>Riconcilia ora</b> esegue la riconciliazione descritta in "Sincronizzazioni"; cambiando l'anno sportivo si ricostruisce anche lo storico degli anni precedenti.</li>
    <li><b>Referti</b>: gare svolte con o senza copia del referto caricata.</li>
   </ul>`},
  {cat:'Comitato', r:'comitato', t:'Impostazioni: parametri, sincronizzazioni, account', c:`
   <p>Icona <b>⚙</b> in alto (solo comitato).</p>
   <p><b>Parametri anno sportivo</b>: tariffa €/km, gettoni (regionale, nazionale, coordinatore), modalità di rimborso predefinita, minimi di servizi e aggiornamenti in 12 mesi, mesi massimi di inattività, limiti di età. Vanno impostati per ogni anno sportivo (art. 16: misura stabilita annualmente); se mancano si usano quelli dell'anno più recente.</p>
   <p><b>Sincronizzazione</b>: pulsanti per calendario gare e albo giudici, più il <b>Registro</b> delle esecuzioni con esito e note.</p>
-  <p><b>Account e ruoli</b>: ogni account registrato va collegato a un giudice e ha un ruolo (Giudice o Comitato). Chi si registra con l'email presente nel profilo viene collegato in automatico. Non puoi togliere il ruolo Comitato a te stesso.</p>`},
+  <p><b>Account e ruoli</b>: gli account "da attivare" compaiono in cima (e con un avviso in Home). Premi <b>Attiva</b>, scegli il ruolo (Giudice o Comitato) e il giudice collegato: se esiste un giudice con la stessa email viene proposto, ma verifica che sia la persona giusta. Un account Giudice deve sempre avere un profilo collegato. Per revocare l'accesso a qualcuno riportalo a "Ospite". Non puoi togliere il ruolo Comitato a te stesso.</p>`},
  {cat:'Comitato', r:'comitato', t:'Sincronizzazioni: calendario e albo da arco.swen', c:`
   <p><b>Calendario gare</b>: legge il calendario pubblico del portale arco.swen e importa le sole gare (non corsi e attività didattiche) con data, tipo, classificazione, organizzatore, luogo, contatti e il <b>giudice registrato</b> dall'organizzatore. Le gare nuove passate vengono create come "svolte", quelle future come "in programma"; le gare disattivate sul portale vengono segnate "annullate" con una nota nel registro. Percorsi, fabbisogno e note del comitato non vengono mai sovrascritti.</p>
-  <p><b>Riconciliazione automatica</b> (al termine di ogni sincronizzazione del calendario, o a mano da Report → arco.swen → Riconcilia ora): per ogni gara con un giudice registrato sul portale che corrisponde a un giudice in elenco, l'app <b>crea la convocazione</b> se manca (ruolo Giudice, o Affiancamento; deroga automatica se un Regionale è su gara nazionale), <b>conferma</b> le proposte/accettate e, a gara passata, le chiude come <b>svolte</b>. Le gare passate ancora "in programma" vengono chiuse. Le regole del regolamento restano valide: i casi che le violano (per esempio un affiancato registrato da solo) non vengono forzati e compaiono nel registro e nel report. Un giudice segnato "Assente" o una convocazione "Rifiutata"/"Annullata" non vengono toccati.</p>
+  <p><b>Riconciliazione automatica</b> (al termine di ogni sincronizzazione del calendario, o a mano da Report → arco.swen → Riconcilia ora). La regola di fondo è che <b>designa il comitato</b> (art. 7 quater), non l'organizzatore:</p>
+  <ul><li><b>Gare future</b>: l'app non crea mai convocazioni dal portale. Se il comitato ha già proposto lo stesso giudice registrato dall'organizzatore, la proposta viene confermata (le due fonti concordano). Se il portale ha un giudice e qui non c'è nulla, compare un avviso in Home e nel report, con il pulsante <b>Convoca</b> per recepire la registrazione.</li>
+  <li><b>Gare passate</b>: la registrazione sul portale è l'unica traccia, quindi la convocazione viene creata (ruolo Giudice o Affiancamento; deroga automatica se un Regionale era su gara nazionale) e chiusa come <b>svolta</b> solo se sul portale la gara risulta chiusa con classifica calcolata; altrimenti resta "confermata" e compare in Home tra le gare da chiudere, dove il comitato decide svolta o assente.</li></ul>
+  <p>Le gare passate ancora "in programma" vengono segnate svolte. Le regole del regolamento restano valide: i casi che le violano (per esempio un affiancato registrato da solo) non vengono forzati e compaiono nel registro. "Assente", "Rifiutata" e "Annullata" non vengono mai toccati. L'esito di ogni sincronizzazione elenca le chiusure automatiche, da scorrere.</p>
   <p><b>Albo giudici</b>: legge l'albo del portale arco.swen (tecnici con abilitazione "Giudice di Gara"). Fornisce cognome, nome, sesso, società, comune, provincia, regione e numero tessera: i giudici nuovi vengono creati come Regionali con la nota "verificare qualifica e contatti"; quelli già presenti (stesso ID o stesso cognome+nome) vengono collegati e aggiornati in società e tessera. Contatti, qualifica, scadenze e note restano quelli inseriti qui. Chi non risulta più nell'albo viene <b>segnalato</b> ("non in albo") ma non cancellato né disattivato: decide il comitato.</p>
   <p>Quando lanciarle: il calendario ogni settimana e comunque dopo ogni fine settimana di gara (così i servizi svolti vengono contati subito); l'albo dopo ogni corso. Le sincronizzazioni non toccano disponibilità e rimborsi.</p>`},
 
@@ -1099,11 +1226,13 @@ const GUIDE = [
  {cat:'Domande frequenti', r:'tutti', t:'Ho convocato un giudice ma l\'app dice "richiede deroga"', c:`<p>È un Giudice Regionale su una gara Nazionale/Internazionale/Europea (art. 7 ter). Nella finestra di conferma dell'assegnazione spunta "Autorizzo la deroga del comitato". La deroga resta visibile sulla convocazione.</p>`},
  {cat:'Domande frequenti', r:'tutti', t:'Non riesco a confermare un giudice in affiancamento', c:`<p>Un giudice in affiancamento deve essere affiancato da un giudice riconosciuto (art. 2): conferma prima almeno un giudice con ruolo Giudice o Coordinatore sulla stessa gara.</p>`},
  {cat:'Domande frequenti', r:'tutti', t:'Un giudice non compare tra gli assegnabili', c:`<p>O è già convocato per quella gara (anche come proposta), oppure è segnato "non attivo". I non attivi si vedono nella scheda Giudici con il filtro "Anche non attivi".</p>`},
- {cat:'Domande frequenti', r:'tutti', t:'I conteggi del report non tornano (un servizio svolto non viene contato)', c:`<p>Conta solo una convocazione in stato <b>svolta</b>. Se il giudice è registrato sul portale arco.swen, basta lanciare <b>Sincronizza → Calendario gare</b> (o Report → arco.swen → Riconcilia ora): la convocazione viene creata o chiusa automaticamente. Se la gara non è su arco.swen o il giudice registrato è diverso, chiudi la convocazione dalla Home (Gare passate da chiudere → Svolta) o creala dalla scheda della gara con stato "Confermata direttamente" e poi segnala Svolta. Controlla anche l'anno sportivo selezionato nel menu a tendina.</p>`},
+ {cat:'Domande frequenti', r:'tutti', t:'I conteggi del report non tornano (un servizio svolto non viene contato)', c:`<p>Conta solo una convocazione in stato <b>svolta</b>. Se il giudice è registrato sul portale arco.swen e la gara è passata, lancia <b>Sincronizza → Calendario gare</b>: la convocazione viene creata; diventa "svolta" da sola se il portale ha la classifica calcolata, altrimenti la trovi in Home tra le gare da chiudere. Se la gara non è su arco.swen o il giudice registrato è diverso, creala dalla scheda della gara con stato "Confermata direttamente" e poi segnala Svolta. Controlla anche l'anno sportivo selezionato.</p>`},
+ {cat:'Domande frequenti', r:'giudice', t:'Non trovo più il pulsante per aggiungere un aggiornamento', c:`<p>Dalla versione 1.4 gli aggiornamenti sono eventi creati dal comitato e le presenze le registra il comitato: vedi "Corsi e aggiornamenti". Per un corso esterno riconosciuto, chiedi al comitato di registrarlo.</p>`},
  {cat:'Domande frequenti', r:'tutti', t:'Il giudice registrato su arco.swen non viene riconosciuto', c:`<p>Il confronto usa "COGNOME NOME" (o "NOME COGNOME"), ignorando maiuscole e spazi doppi. Se sul portale c'è un refuso o un nome diverso da quello in elenco (per esempio un secondo nome mancante), la gara finisce tra i "non riconosciuti": correggi il nome del giudice in elenco perché coincida con l'albo arco.swen, oppure crea la convocazione a mano dalla scheda della gara.</p>`},
  {cat:'Domande frequenti', r:'tutti', t:'Ho sbagliato a segnare "Assente"', c:`<p>Dalla scheda della gara annulla la convocazione (✕) e ricreala con stato "Confermata direttamente", poi segnala Svolta. Lo storico conserva entrambe le operazioni.</p>`},
  {cat:'Domande frequenti', r:'tutti', t:'Posso lavorare senza connessione?', c:`<p>Le schermate già aperte restano visibili, ma qualsiasi modifica (disponibilità, risposte, rimborsi) richiede la connessione: se salvi senza rete compare un errore e l'operazione non viene registrata.</p>`},
- {cat:'Domande frequenti', r:'tutti', t:'Chi vede i miei dati?', c:`<p>Tutti gli utenti vedono nome, qualifica e convocazioni dei colleghi (serve per conoscere la squadra di gara). Contatti, scadenze, rimborsi e referti sono visibili solo a te e al comitato. Le regole di accesso sono applicate dal database, non solo dall'interfaccia.</p>`}
+ {cat:'Domande frequenti', r:'tutti', t:'Chi vede i miei dati?', c:`<p>Gli account attivati vedono nome, qualifica e convocazioni dei colleghi (serve per conoscere la squadra di gara). Contatti, scadenze, rimborsi e referti sono visibili solo a te e al comitato. Un account non attivato (ospite) non vede nulla. Le regole di accesso sono applicate dal database, non solo dall'interfaccia.</p>`},
+ {cat:'Domande frequenti', r:'comitato', t:'Un giudice si è registrato ma dice di non vedere niente', c:`<p>È un account ancora "ospite": vai in ⚙ Impostazioni → Account e ruoli, premi <b>Attiva</b> sull'email, scegli Giudice e il profilo collegato. Al suo "Ricontrolla" vedrà le sue schede.</p>`}
 ];
 VIEWS.guida = ()=>{
   const f=S.filtri.guida||(S.filtri.guida={q:'',r:S.comitato?'tutti':'giudice'});

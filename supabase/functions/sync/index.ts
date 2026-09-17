@@ -70,9 +70,9 @@ async function syncSwen(db: ReturnType<typeof createClient>) {
   if (!Array.isArray(eventi)) throw new Error("Risposta arco.swen non valida");
 
   const gare = eventi.filter((e) => e.TipologiaEvento === "Gara" && e.DataEvento);
-  const { data: esistenti, error } = await db.from("gare").select("id, swen_id, swen_updated_at, stato, data_inizio").not("swen_id", "is", null);
+  const { data: esistenti, error } = await db.from("gare").select("id, swen_id, swen_updated_at, stato, data_inizio, swen_stato, swen_classifica").not("swen_id", "is", null);
   if (error) throw error;
-  type GaraRow = { id: string; swen_id: number; swen_updated_at: string | null; stato: string; data_inizio: string };
+  type GaraRow = { id: string; swen_id: number; swen_updated_at: string | null; stato: string; data_inizio: string; swen_stato: string | null; swen_classifica: boolean | null };
   const byId = new Map<number, GaraRow>((esistenti ?? []).map((g: GaraRow) => [g.swen_id, g]));
 
   let inseriti = 0, aggiornati = 0; const note: string[] = [];
@@ -104,6 +104,7 @@ async function syncSwen(db: ReturnType<typeof createClient>) {
       origine: "swen",
       giudice_swen: (e.Giudice as string) || null,
       swen_stato: (e.StatoEvento as string) || null,
+      swen_classifica: e.isClassificaCalcolata === true,
       swen_partecipanti: e.TotalePartecipanti ? Number(e.TotalePartecipanti) : null,
       swen_updated_at: (e.updatedAt as string) || null,
       ultima_sync: new Date().toISOString(),
@@ -117,7 +118,7 @@ async function syncSwen(db: ReturnType<typeof createClient>) {
       // gara esistente: si riallineano solo i campi di arco.swen (non stato/percorsi/fabbisogno/note del comitato)
       const upd: Record<string, unknown> = { ...rec };
       if (e.isAttivo === false && ex.stato !== "annullata") { upd.stato = "annullata"; note.push(`Annullata su arco.swen: ${rec.titolo} (${dataInizio})`); }
-      if (ex.swen_updated_at !== rec.swen_updated_at || ex.data_inizio !== dataInizio || upd.stato) { daAggiornare.push(upd); }
+      if (ex.swen_updated_at !== rec.swen_updated_at || ex.data_inizio !== dataInizio || ex.swen_stato !== rec.swen_stato || ex.swen_classifica !== rec.swen_classifica || upd.stato) { daAggiornare.push(upd); }
     }
   }
   // scritture a blocchi: upsert su swen_id aggiorna solo le colonne presenti nell'oggetto
@@ -137,7 +138,8 @@ async function syncSwen(db: ReturnType<typeof createClient>) {
   const { data: ric, error: re } = await db.rpc("riconcilia_swen");
   if (re) note.push(`Riconciliazione non eseguita: ${re.message}`);
   else {
-    note.unshift(`Riconciliazione: ${ric.convocazioni_create} convocazioni create, ${ric.confermate} confermate, ${ric.svolte} chiuse come svolte, ${ric.gare_chiuse} gare passate chiuse`);
+    note.unshift(`Riconciliazione: ${ric.convocazioni_create} convocazioni create, ${ric.confermate} confermate, ${ric.svolte} chiuse come svolte, ${ric.gare_chiuse} gare passate chiuse, ${ric.future_senza_convocazione} gare future con giudice sul portale ma senza convocazione`);
+    for (const e of (ric.chiuse_automaticamente ?? []) as string[]) note.push(`Svolta (chiusa sul portale): ${e}`);
     for (const e of (ric.errori ?? []) as string[]) note.push(`Non riconciliata: ${e}`);
   }
   return { messaggio: `Calendario arco.swen: ${gare.length} gare lette`, inseriti, aggiornati, segnalati: ((ric?.errori ?? []) as string[]).length, note: note.slice(0, 60) };
