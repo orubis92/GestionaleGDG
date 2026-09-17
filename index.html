@@ -1,0 +1,978 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1b2a49">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>GestionaleGDG · Comitato Giudici di Gara CSAIn</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+:root{
+  --navy:#1b2a49; --navy-2:#243a63; --orange:#e8731a; --orange-2:#f28c3a;
+  --bg:#f4f5f8; --card:#fff; --text:#1f2430; --muted:#6b7280; --line:#e3e6ec;
+  --ok:#1f9d55; --warn:#d97706; --err:#c0392b; --info:#2563eb;
+  --radius:12px; --nav-h:60px; --head-h:56px;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;background:var(--bg);color:var(--text);font:15px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;-webkit-text-size-adjust:100%}
+button,input,select,textarea{font:inherit;color:inherit}
+a{color:var(--info)}
+h1,h2,h3,h4{margin:0 0 .5rem;line-height:1.25}
+h2{font-size:1.25rem}h3{font-size:1.05rem}h4{font-size:.95rem;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+p{margin:.25rem 0 .6rem}
+.hidden{display:none!important}
+.muted{color:var(--muted)}
+.small{font-size:.85rem}
+.right{text-align:right}
+.center{text-align:center}
+.mt{margin-top:1rem}.mb{margin-bottom:1rem}
+.row{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap}
+.row.between{justify-content:space-between}
+.grow{flex:1}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:.6rem}
+.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:.6rem}
+@media(max-width:600px){.grid2,.grid3{grid-template-columns:1fr}}
+
+/* header */
+header{position:fixed;top:0;left:0;right:0;height:var(--head-h);background:var(--navy);color:#fff;display:flex;align-items:center;padding:0 .9rem;gap:.7rem;z-index:20;padding-top:env(safe-area-inset-top)}
+header .logo{width:32px;height:32px;border-radius:8px;background:var(--orange);display:grid;place-items:center;font-weight:800;font-size:.8rem}
+header .title{font-weight:700;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+header .title small{display:block;font-weight:400;font-size:.72rem;opacity:.8}
+header button{background:transparent;border:0;color:#fff;font-size:1.25rem;padding:.35rem .5rem;border-radius:8px;cursor:pointer;position:relative}
+header button:hover{background:rgba(255,255,255,.12)}
+.badge-dot{position:absolute;top:2px;right:2px;min-width:18px;height:18px;border-radius:9px;background:var(--orange);color:#fff;font-size:.7rem;font-weight:700;display:grid;place-items:center;padding:0 4px}
+
+/* main */
+main{padding:calc(var(--head-h) + .8rem) .8rem calc(var(--nav-h) + 1.2rem);max-width:1100px;margin:0 auto}
+@media(min-width:900px){main{padding-top:calc(var(--head-h) + 1.2rem)}}
+
+/* nav */
+nav.tabs{position:fixed;bottom:0;left:0;right:0;height:calc(var(--nav-h) + env(safe-area-inset-bottom));background:#fff;border-top:1px solid var(--line);display:flex;z-index:20;padding-bottom:env(safe-area-inset-bottom)}
+nav.tabs button{flex:1;border:0;background:transparent;color:var(--muted);font-size:.72rem;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;cursor:pointer;position:relative}
+nav.tabs button .ic{font-size:1.35rem;line-height:1}
+nav.tabs button.active{color:var(--orange);font-weight:600}
+nav.tabs button .cnt{position:absolute;top:6px;left:calc(50% + 8px);min-width:16px;height:16px;border-radius:8px;background:var(--err);color:#fff;font-size:.65rem;display:grid;place-items:center;padding:0 4px}
+
+/* cards & lists */
+.card{background:var(--card);border-radius:var(--radius);padding:.9rem;margin-bottom:.8rem;box-shadow:0 1px 2px rgba(0,0,0,.05);border:1px solid var(--line)}
+.card.clickable{cursor:pointer}
+.card.clickable:hover{border-color:var(--orange-2)}
+.list-item{display:flex;gap:.7rem;align-items:flex-start;padding:.7rem 0;border-bottom:1px solid var(--line)}
+.list-item:last-child{border-bottom:0}
+.list-item .date{min-width:52px;text-align:center;background:var(--bg);border-radius:8px;padding:.3rem .2rem;line-height:1.1}
+.list-item .date b{display:block;font-size:1.2rem}
+.list-item .date span{font-size:.7rem;text-transform:uppercase;color:var(--muted)}
+.list-item .body{flex:1;min-width:0}
+.list-item .body .t{font-weight:600}
+.list-item .body .s{font-size:.85rem;color:var(--muted)}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:.6rem;margin-bottom:.8rem}
+.kpi{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:.7rem .8rem}
+.kpi b{display:block;font-size:1.5rem;color:var(--navy)}
+.kpi span{font-size:.78rem;color:var(--muted)}
+.kpi.warn b{color:var(--warn)}.kpi.err b{color:var(--err)}.kpi.ok b{color:var(--ok)}
+
+/* pills */
+.pill{display:inline-block;padding:.12rem .55rem;border-radius:999px;font-size:.74rem;font-weight:600;background:#e9ecf3;color:var(--navy);white-space:nowrap}
+.pill.ok{background:#dcf5e6;color:#166534}.pill.warn{background:#fdf0d5;color:#92400e}.pill.err{background:#fde2e0;color:#991b1b}.pill.info{background:#dbe7ff;color:#1e3a8a}.pill.orange{background:#fde7d3;color:#9a3d05}.pill.grey{background:#eef0f4;color:#4b5563}
+
+/* buttons */
+.btn{display:inline-flex;align-items:center;gap:.35rem;border:1px solid var(--line);background:#fff;padding:.5rem .85rem;border-radius:9px;cursor:pointer;font-weight:600;font-size:.9rem;line-height:1}
+.btn:hover{border-color:#c9ceda;background:#fafbfd}
+.btn.primary{background:var(--orange);border-color:var(--orange);color:#fff}
+.btn.primary:hover{background:var(--orange-2)}
+.btn.navy{background:var(--navy);border-color:var(--navy);color:#fff}
+.btn.danger{color:var(--err);border-color:#f3c4c0}
+.btn.ok{color:var(--ok);border-color:#bde5cc}
+.btn.sm{padding:.35rem .6rem;font-size:.8rem}
+.btn.block{width:100%;justify-content:center}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+
+/* forms */
+label.f{display:block;font-size:.8rem;color:var(--muted);margin:.5rem 0 .2rem;font-weight:600}
+input.f,select.f,textarea.f{width:100%;padding:.55rem .65rem;border:1px solid #cfd4de;border-radius:9px;background:#fff}
+input.f:focus,select.f:focus,textarea.f:focus{outline:2px solid #f5c39c;border-color:var(--orange)}
+textarea.f{min-height:70px;resize:vertical}
+.check{display:flex;gap:.5rem;align-items:center;margin:.5rem 0}
+.check input{width:18px;height:18px}
+.filters{display:flex;gap:.5rem;flex-wrap:wrap;margin-bottom:.8rem}
+.filters select,.filters input{padding:.45rem .6rem;border:1px solid #cfd4de;border-radius:9px;background:#fff;font-size:.88rem}
+.search{flex:1;min-width:140px}
+
+/* table */
+.tbl-wrap{overflow:auto;-webkit-overflow-scrolling:touch}
+table.tbl{width:100%;border-collapse:collapse;font-size:.86rem;background:#fff}
+table.tbl th,table.tbl td{padding:.5rem .55rem;border-bottom:1px solid var(--line);text-align:left;vertical-align:top;white-space:nowrap}
+table.tbl th{background:#f0f2f6;font-size:.75rem;text-transform:uppercase;letter-spacing:.03em;color:var(--muted);position:sticky;top:0}
+table.tbl tr.clickable{cursor:pointer}
+table.tbl tr.clickable:hover td{background:#fbf7f3}
+table.tbl td.num,table.tbl th.num{text-align:right}
+
+/* modal */
+.modal-bg{position:fixed;inset:0;background:rgba(20,25,40,.55);z-index:50;display:flex;align-items:flex-end;justify-content:center}
+@media(min-width:700px){.modal-bg{align-items:center}}
+.modal{background:#fff;width:100%;max-width:720px;max-height:92vh;overflow:auto;border-radius:16px 16px 0 0;padding:1rem 1rem calc(1rem + env(safe-area-inset-bottom))}
+@media(min-width:700px){.modal{border-radius:16px}}
+.modal .mh{display:flex;justify-content:space-between;align-items:center;margin-bottom:.6rem;gap:.5rem}
+.modal .mh h3{margin:0}
+.modal .close{border:0;background:#eef0f4;width:34px;height:34px;border-radius:17px;font-size:1.1rem;cursor:pointer}
+.modal .actions{display:flex;gap:.5rem;justify-content:flex-end;margin-top:1rem;flex-wrap:wrap}
+
+/* toast */
+#toast{position:fixed;left:50%;bottom:calc(var(--nav-h) + 16px);transform:translateX(-50%);background:var(--navy);color:#fff;padding:.6rem 1rem;border-radius:10px;font-size:.9rem;z-index:99;opacity:0;transition:opacity .2s;pointer-events:none;max-width:90vw;text-align:center}
+#toast.show{opacity:1}
+#toast.err{background:var(--err)}#toast.ok{background:var(--ok)}
+
+/* login */
+.login-wrap{min-height:100vh;display:grid;place-items:center;padding:1rem;background:linear-gradient(160deg,var(--navy),#0f1a33)}
+.login{background:#fff;border-radius:16px;padding:1.5rem;width:100%;max-width:400px}
+.login .brand{display:flex;align-items:center;gap:.7rem;margin-bottom:1rem}
+.login .brand .logo{width:44px;height:44px;border-radius:10px;background:var(--orange);color:#fff;display:grid;place-items:center;font-weight:800}
+
+/* misc */
+.alert{padding:.7rem .85rem;border-radius:10px;font-size:.9rem;margin-bottom:.7rem;border:1px solid}
+.alert.warn{background:#fff7e8;border-color:#f7dcae;color:#7c3d00}
+.alert.err{background:#fdeeed;border-color:#f3c4c0;color:#8b1d12}
+.alert.info{background:#eaf1ff;border-color:#c4d6fb;color:#1e3a8a}
+.alert.ok{background:#e9f8ef;border-color:#bde5cc;color:#14532d}
+.sem{display:inline-block;width:10px;height:10px;border-radius:5px;margin-right:4px;vertical-align:middle}
+.sem.ok{background:var(--ok)}.sem.warn{background:var(--warn)}.sem.err{background:var(--err)}.sem.grey{background:#c5c9d3}
+.avail-btns{display:flex;gap:.35rem}
+.avail-btns button{flex:1;padding:.4rem .3rem;border-radius:8px;border:1px solid var(--line);background:#fff;font-size:.8rem;cursor:pointer}
+.avail-btns button.on-si{background:#dcf5e6;border-color:#8fd3aa;color:#166534;font-weight:700}
+.avail-btns button.on-no{background:#fde2e0;border-color:#f0a09a;color:#991b1b;font-weight:700}
+details.guide{margin-bottom:.5rem}
+details.guide summary{cursor:pointer;font-weight:600;padding:.4rem 0}
+.spinner{display:inline-block;width:18px;height:18px;border:3px solid #ddd;border-top-color:var(--orange);border-radius:50%;animation:spin .8s linear infinite;vertical-align:middle}
+@keyframes spin{to{transform:rotate(360deg)}}
+.section-title{display:flex;justify-content:space-between;align-items:center;margin:.9rem 0 .5rem}
+.section-title h3{margin:0}
+.chip-row{display:flex;gap:.35rem;flex-wrap:wrap;margin:.3rem 0}
+.chip{padding:.25rem .6rem;border-radius:999px;border:1px solid var(--line);background:#fff;font-size:.8rem;cursor:pointer}
+.chip.on{background:var(--navy);color:#fff;border-color:var(--navy)}
+.month-h{font-weight:700;color:var(--navy);margin:1rem 0 .3rem;text-transform:capitalize}
+.expense-row{display:grid;grid-template-columns:1fr 100px 34px;gap:.4rem;margin-bottom:.4rem}
+.bar{height:8px;background:#e9ecf3;border-radius:4px;overflow:hidden}
+.bar i{display:block;height:100%;background:var(--orange)}
+</style>
+</head>
+<body>
+
+<!-- ======================= SETUP (prima configurazione) ======================= -->
+<div id="setup" class="login-wrap hidden">
+  <div class="login">
+    <div class="brand"><div class="logo">GdG</div><div><b>GestionaleGDG</b><br><small class="muted">Configurazione iniziale</small></div></div>
+    <p class="small">Inserisci i dati del progetto Supabase (Project Settings → API). Restano salvati su questo dispositivo; per non ripeterli su ogni dispositivo scrivili nelle costanti <code>CONFIG</code> in cima al file index.html.</p>
+    <label class="f">URL progetto</label><input class="f" id="cfg-url" placeholder="https://xxxxx.supabase.co">
+    <label class="f">Chiave anon (public)</label><input class="f" id="cfg-key" placeholder="eyJhbGciOi...">
+    <button class="btn primary block mt" onclick="saveConfig()">Salva e continua</button>
+  </div>
+</div>
+
+<!-- ======================= LOGIN ======================= -->
+<div id="login" class="login-wrap hidden">
+  <div class="login">
+    <div class="brand"><div class="logo">GdG</div><div><b>GestionaleGDG</b><br><small class="muted">Comitato Giudici di Gara CSAIn · Tiro con l'arco 3D</small></div></div>
+    <div id="login-form">
+      <label class="f">Email</label><input class="f" id="li-email" type="email" autocomplete="username">
+      <label class="f">Password</label><input class="f" id="li-pass" type="password" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()">
+      <button class="btn primary block mt" onclick="doLogin()">Accedi</button>
+      <div class="row between mt small">
+        <a href="#" onclick="showLoginMode('reg');return false">Registrati</a>
+        <a href="#" onclick="showLoginMode('reset');return false">Password dimenticata</a>
+      </div>
+    </div>
+    <div id="reg-form" class="hidden">
+      <p class="small">Registrati con l'email che il comitato ha nel tuo profilo giudice: verrai collegato automaticamente. Altrimenti il comitato ti collegherà dalle impostazioni.</p>
+      <label class="f">Email</label><input class="f" id="rg-email" type="email">
+      <label class="f">Password (min 8 caratteri)</label><input class="f" id="rg-pass" type="password">
+      <button class="btn primary block mt" onclick="doRegister()">Crea account</button>
+      <div class="center mt small"><a href="#" onclick="showLoginMode('login');return false">Torna al login</a></div>
+    </div>
+    <div id="reset-form" class="hidden">
+      <label class="f">Email</label><input class="f" id="rs-email" type="email">
+      <button class="btn primary block mt" onclick="doReset()">Invia link di reset</button>
+      <div class="center mt small"><a href="#" onclick="showLoginMode('login');return false">Torna al login</a></div>
+    </div>
+    <div id="login-msg" class="alert info hidden mt"></div>
+  </div>
+</div>
+
+<!-- ======================= APP ======================= -->
+<div id="app" class="hidden">
+  <header>
+    <div class="logo">GdG</div>
+    <div class="title">GestionaleGDG<small id="hdr-sub">Comitato Giudici di Gara CSAIn</small></div>
+    <button onclick="openGuide()" title="Guida">?</button>
+    <button id="btn-settings" onclick="go('impostazioni')" title="Impostazioni" class="hidden">⚙</button>
+    <button onclick="doLogout()" title="Esci">⏻</button>
+  </header>
+  <main id="view"></main>
+  <nav class="tabs" id="nav"></nav>
+</div>
+
+<div id="modals"></div>
+<div id="toast"></div>
+
+<script>
+/* =====================================================================
+   CONFIGURAZIONE
+   Compila questi due valori (Supabase → Project Settings → API) oppure
+   lasciali vuoti: al primo avvio l'app li chiede e li salva sul dispositivo.
+   ===================================================================== */
+const CONFIG = {
+  SUPABASE_URL: '',
+  SUPABASE_ANON_KEY: ''
+};
+const APP_VER = '1.0.0';
+/* ===================== COSTANTI DI DOMINIO ===================== */
+const QUALIFICHE = { regionale:'Giudice Regionale', nazionale:'Giudice Nazionale', emerito:'Giudice Emerito' };
+const RUOLI_GARA = { giudice:'Giudice', coordinatore:'Coordinatore', affiancamento:'Affiancamento' };
+const STATI_CONV = { proposta:'Proposta', accettata:'Accettata', rifiutata:'Rifiutata', confermata:'Confermata', svolta:'Svolta', assente:'Assente', annullata:'Annullata' };
+const STATI_CONV_CLS = { proposta:'warn', accettata:'info', rifiutata:'err', confermata:'ok', svolta:'ok', assente:'err', annullata:'grey' };
+const STATI_RIMB = { da_compilare:'Da compilare', compilato:'Compilato', approvato:'Approvato', liquidato:'Liquidato' };
+const STATI_RIMB_CLS = { da_compilare:'grey', compilato:'warn', approvato:'info', liquidato:'ok' };
+const MODALITA_RIMB = { km_spese:'Km × tariffa + spese', gettone_km:'Gettone + km', manuale:'Importo manuale' };
+const CLASSI_NAZIONALI = ['Nazionale','Internazionale','Europeo'];
+const MESI = ['gennaio','febbraio','marzo','aprile','maggio','giugno','luglio','agosto','settembre','ottobre','novembre','dicembre'];
+const MESI_S = ['gen','feb','mar','apr','mag','giu','lug','ago','set','ott','nov','dic'];
+
+/* ===================== STATO GLOBALE ===================== */
+let sb = null;                 // client supabase
+const S = {
+  user:null, profilo:null, giudice:null, comitato:false,
+  giudici:[], gare:[], conv:[], disp:[], parametri:[], profili:[], aggiornamenti:[], statoGiudici:[],
+  tab:'home', annoSportivo:null, filtri:{}, loaded:false
+};
+
+/* ===================== UTILITY ===================== */
+const $ = (id)=>document.getElementById(id);
+const esc = (s)=> (s==null?'':String(s)).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmtD = (d)=>{ if(!d) return ''; const x=new Date(d+(d.length===10?'T00:00:00':'')); return x.toLocaleDateString('it-IT',{day:'2-digit',month:'2-digit',year:'numeric'}); };
+const fmtDL = (d)=>{ if(!d) return ''; const x=new Date(d+(d.length===10?'T00:00:00':'')); return x.toLocaleDateString('it-IT',{weekday:'short',day:'numeric',month:'long',year:'numeric'}); };
+const fmtE = (n)=> (Number(n)||0).toLocaleString('it-IT',{style:'currency',currency:'EUR'});
+const today = ()=> new Date().toISOString().slice(0,10);
+const nomeG = (g)=> g ? `${g.cognome||''} ${g.nome||''}`.trim() : '';
+const isNaz = (cls)=> CLASSI_NAZIONALI.includes(cls||'');
+function annoSportivoDi(d){ const x=new Date(d+'T00:00:00'); const y=x.getFullYear(); return x.getMonth()>=8 ? `${y}/${y+1}` : `${y-1}/${y}`; }
+function anniSportiviDisponibili(){ const set=new Set(S.gare.map(g=>g.anno_sportivo||annoSportivoDi(g.data_inizio))); set.add(annoSportivoDi(today())); return [...set].sort().reverse(); }
+function toast(msg, cls=''){ const t=$('toast'); t.textContent=msg; t.className='show '+cls; clearTimeout(t._h); t._h=setTimeout(()=>t.className='',3200); }
+function err(e){ console.error(e); toast((e&&e.message)||String(e),'err'); }
+function pill(txt, cls='')  { return `<span class="pill ${cls}">${esc(txt)}</span>`; }
+function eta(dn){ if(!dn) return null; const d=new Date(dn), t=new Date(); let a=t.getFullYear()-d.getFullYear(); if(t<new Date(t.getFullYear(),d.getMonth(),d.getDate())) a--; return a; }
+function diffMesi(d){ if(!d) return null; const x=new Date(d), t=new Date(); return (t.getFullYear()-x.getFullYear())*12 + (t.getMonth()-x.getMonth()); }
+function sortBy(arr, f, desc=false){ return [...arr].sort((a,b)=>{ const x=f(a), y=f(b); return (x>y?1:x<y?-1:0)*(desc?-1:1); }); }
+function groupBy(arr, f){ const m={}; arr.forEach(x=>{ const k=f(x); (m[k]=m[k]||[]).push(x); }); return m; }
+function download(name, blob){ const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=name; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),2000); }
+function exportXlsx(name, sheets){ // sheets: {nome:[{col:val}]}
+  const wb=XLSX.utils.book_new();
+  Object.entries(sheets).forEach(([n,rows])=>{ const ws=XLSX.utils.json_to_sheet(rows.length?rows:[{}]); XLSX.utils.book_append_sheet(wb, ws, n.slice(0,31)); });
+  XLSX.writeFile(wb, name);
+}
+
+/* ===================== CONFIG / INIT ===================== */
+function getConfig(){
+  if(CONFIG.SUPABASE_URL && CONFIG.SUPABASE_ANON_KEY) return CONFIG;
+  try{ const c=JSON.parse(localStorage.getItem('gdg_cfg')||'null'); if(c&&c.SUPABASE_URL&&c.SUPABASE_ANON_KEY) return c; }catch(e){}
+  return null;
+}
+function saveConfig(){
+  const url=$('cfg-url').value.trim().replace(/\/$/,''), key=$('cfg-key').value.trim();
+  if(!/^https:\/\/.+\.supabase\.co$/.test(url) || key.length<40) return toast('Controlla URL e chiave','err');
+  localStorage.setItem('gdg_cfg', JSON.stringify({SUPABASE_URL:url, SUPABASE_ANON_KEY:key}));
+  location.reload();
+}
+function showLoginMode(m){ ['login','reg','reset'].forEach(x=>$(x+'-form').classList.toggle('hidden', x!==m)); $('login-msg').classList.add('hidden'); }
+function loginMsg(t, cls='info'){ const m=$('login-msg'); m.textContent=t; m.className='alert '+cls+' mt'; }
+
+async function init(){
+  const cfg=getConfig();
+  if(!cfg){ $('setup').classList.remove('hidden'); return; }
+  sb = supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY);
+  sb.auth.onAuthStateChange((ev, session)=>{
+    if(ev==='PASSWORD_RECOVERY'){ openModal('Nuova password', `<label class="f">Nuova password</label><input class="f" id="np" type="password">`, [{t:'Salva',cls:'primary',fn:async()=>{ const {error}=await sb.auth.updateUser({password:$('np').value}); if(error) return err(error); closeModal(); toast('Password aggiornata','ok'); }}]); }
+  });
+  const { data:{ session } } = await sb.auth.getSession();
+  if(session){ await afterLogin(session.user); } else { $('login').classList.remove('hidden'); }
+  if('serviceWorker' in navigator){ navigator.serviceWorker.register('sw.js').catch(()=>{}); }
+}
+
+async function doLogin(){
+  const email=$('li-email').value.trim(), password=$('li-pass').value;
+  if(!email||!password) return loginMsg('Inserisci email e password','warn');
+  loginMsg('Accesso in corso…');
+  const { data, error } = await sb.auth.signInWithPassword({ email, password });
+  if(error) return loginMsg(error.message==='Invalid login credentials'?'Email o password errati':error.message,'err');
+  await afterLogin(data.user);
+}
+async function doRegister(){
+  const email=$('rg-email').value.trim(), password=$('rg-pass').value;
+  if(!email||password.length<8) return loginMsg('Email valida e password di almeno 8 caratteri','warn');
+  const { data, error } = await sb.auth.signUp({ email, password });
+  if(error) return loginMsg(error.message,'err');
+  if(data.session){ await afterLogin(data.user); } else loginMsg('Account creato. Controlla la posta per confermare l\'email, poi accedi.','ok');
+}
+async function doReset(){
+  const email=$('rs-email').value.trim(); if(!email) return;
+  const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo: location.href.split('#')[0] });
+  if(error) return loginMsg(error.message,'err');
+  loginMsg('Se l\'email è registrata riceverai un link per reimpostare la password.','ok');
+}
+async function doLogout(){ await sb.auth.signOut(); location.reload(); }
+
+async function afterLogin(user){
+  S.user=user;
+  const { data:p, error } = await sb.from('profili').select('*').eq('id', user.id).maybeSingle();
+  if(error) return err(error);
+  if(!p){ // il trigger dovrebbe crearlo; fallback
+    const { data:p2 } = await sb.from('profili').insert({ id:user.id, email:user.email }).select().single();
+    S.profilo=p2;
+  } else S.profilo=p;
+  S.comitato = S.profilo.ruolo==='comitato';
+  $('login').classList.add('hidden'); $('app').classList.remove('hidden');
+  $('btn-settings').classList.toggle('hidden', !S.comitato);
+  await loadAll();
+  buildNav();
+  go(S.comitato?'home':'home');
+}
+
+/* ===================== CARICAMENTO DATI ===================== */
+async function loadAll(){
+  const q = (t, sel='*')=> sb.from(t).select(sel);
+  const [g, ga, c, d, p, agg, sg] = await Promise.all([
+    q('giudici').order('cognome'),
+    q('gare').order('data_inizio'),
+    q('v_convocazioni'),
+    q('disponibilita'),
+    q('parametri'),
+    q('aggiornamenti').order('data',{ascending:false}),
+    q('v_stato_giudici')
+  ]);
+  for(const r of [g,ga,c,d,p,agg,sg]) if(r.error) return err(r.error);
+  S.giudici=g.data; S.gare=ga.data; S.conv=c.data; S.disp=d.data; S.parametri=p.data; S.aggiornamenti=agg.data; S.statoGiudici=sg.data;
+  S.giudice = S.giudici.find(x=>x.id===S.profilo.giudice_id)||null;
+  if(S.comitato){ const pr=await q('profili'); if(!pr.error) S.profili=pr.data; }
+  if(!S.annoSportivo) S.annoSportivo = annoSportivoDi(today());
+  $('hdr-sub').textContent = S.giudice ? `${nomeG(S.giudice)} · ${S.comitato?'Comitato':QUALIFICHE[S.giudice.qualifica]||''}` : (S.comitato?'Comitato':'Profilo non collegato');
+  S.loaded=true;
+}
+async function reload(){ await loadAll(); render(); }
+function param(anno){ return S.parametri.find(p=>p.anno_sportivo===(anno||S.annoSportivo)) || S.parametri[0] || {tariffa_km:0,gettone_regionale:0,gettone_nazionale:0,gettone_coordinatore:0,modalita_default:'km_spese',min_servizi_12m:1,min_aggiornamenti_12m:1,mesi_inattivita_max:24,eta_min:18,eta_max:75}; }
+
+/* ===================== NAVIGAZIONE ===================== */
+function buildNav(){
+  const tabs = S.comitato
+    ? [['home','🏠','Home'],['gare','📅','Gare'],['giudici','👥','Giudici'],['rimborsi','💶','Rimborsi'],['report','📊','Report']]
+    : [['home','🏠','Home'],['gare','📅','Gare'],['convocazioni','📋','Convocazioni'],['profilo','👤','Profilo']];
+  $('nav').innerHTML = tabs.map(([k,ic,l])=>`<button data-tab="${k}" onclick="go('${k}')"><span class="ic">${ic}</span>${l}<span class="cnt hidden" id="cnt-${k}"></span></button>`).join('');
+}
+function go(tab){ S.tab=tab; document.querySelectorAll('nav.tabs button').forEach(b=>b.classList.toggle('active', b.dataset.tab===tab)); render(); window.scrollTo(0,0); }
+function render(){
+  const v=$('view'); const fn=VIEWS[S.tab]; v.innerHTML = fn ? fn() : '<p>Vista non trovata</p>';
+  updateCounters();
+}
+function updateCounters(){
+  const set=(k,n)=>{ const e=$('cnt-'+k); if(!e) return; e.textContent=n; e.classList.toggle('hidden', !n); };
+  if(S.comitato){
+    set('gare', gareScoperte().length);
+    set('rimborsi', S.conv.filter(c=>c.rimborso_stato==='compilato').length);
+  } else if(S.giudice){
+    set('convocazioni', S.conv.filter(c=>c.giudice_id===S.giudice.id && c.stato==='proposta').length);
+  }
+}
+
+/* ===================== MODALI ===================== */
+function openModal(title, html, actions=[], opts={}){
+  const id='m'+Date.now();
+  const div=document.createElement('div'); div.className='modal-bg'; div.id=id;
+  div.innerHTML=`<div class="modal"><div class="mh"><h3>${esc(title)}</h3><button class="close" onclick="closeModal('${id}')">✕</button></div><div class="mb-body">${html}</div>
+    <div class="actions">${actions.map((a,i)=>`<button class="btn ${a.cls||''}" id="${id}-a${i}">${esc(a.t)}</button>`).join('')}</div></div>`;
+  div.addEventListener('click', e=>{ if(e.target===div && !opts.noClose) closeModal(id); });
+  $('modals').appendChild(div);
+  actions.forEach((a,i)=>{ $(`${id}-a${i}`).onclick=()=>a.fn(id); });
+  return id;
+}
+function closeModal(id){ if(id){ const e=$(id); e&&e.remove(); } else { const all=$('modals').children; if(all.length) all[all.length-1].remove(); } }
+function confirmDlg(title, msg, fn, cls='primary'){ openModal(title, `<p>${msg}</p>`, [{t:'Annulla',fn:(id)=>closeModal(id)},{t:'Conferma',cls,fn:async(id)=>{ closeModal(id); await fn(); }}]); }
+
+/* ===================== HELPER DI DOMINIO ===================== */
+function convDiGara(gid){ return S.conv.filter(c=>c.gara_id===gid && c.stato!=='annullata'); }
+function dispDiGara(gid){ return S.disp.filter(d=>d.gara_id===gid); }
+function confermatiGara(g){ return convDiGara(g.id).filter(c=>['confermata','svolta'].includes(c.stato) && c.ruolo!=='affiancamento').length; }
+function gareScoperte(){ return S.gare.filter(g=>g.stato==='programmata' && g.data_inizio>=today() && confermatiGara(g)<g.fabbisogno_giudici); }
+function gareAnno(anno){ return S.gare.filter(g=>(g.anno_sportivo||annoSportivoDi(g.data_inizio))===anno); }
+function statoG(gid){ return S.statoGiudici.find(s=>s.id===gid)||{}; }
+function semaforoGiudice(g){ // ritorna {cls, msgs[]}
+  const s=statoG(g.id), p=param(); const msgs=[]; let cls='ok';
+  if(!g.attivo){ return {cls:'grey', msgs:['Non attivo']}; }
+  const e=eta(g.data_nascita);
+  if(e!=null && (e<p.eta_min||e>p.eta_max)){ msgs.push(`Età ${e} fuori dai limiti (art. 20)`); cls='err'; }
+  if(s.tessera_scaduta){ msgs.push('Tessera RCT scaduta'); cls='err'; }
+  if(s.certificato_scaduto){ msgs.push('Certificato medico scaduto'); cls='err'; }
+  const mi=diffMesi(s.ultimo_servizio);
+  if(s.ultimo_servizio && mi>=p.mesi_inattivita_max){ msgs.push(`Inattivo da ${mi} mesi (art. 6)`); cls='err'; }
+  if((s.servizi_12m||0)<p.min_servizi_12m){ msgs.push(`Servizi ultimi 12 mesi: ${s.servizi_12m||0}/${p.min_servizi_12m} (art. 10 bis)`); if(cls==='ok') cls='warn'; }
+  if((s.aggiornamenti_12m||0)<p.min_aggiornamenti_12m){ msgs.push(`Aggiornamenti ultimi 12 mesi: ${s.aggiornamenti_12m||0}/${p.min_aggiornamenti_12m} (art. 10 bis)`); if(cls==='ok') cls='warn'; }
+  if(g.scadenza_tessera && !s.tessera_scaduta && (new Date(g.scadenza_tessera)-new Date())<30*86400000){ msgs.push('Tessera in scadenza entro 30 giorni'); if(cls==='ok') cls='warn'; }
+  if(g.scadenza_certificato && !s.certificato_scaduto && (new Date(g.scadenza_certificato)-new Date())<30*86400000){ msgs.push('Certificato in scadenza entro 30 giorni'); if(cls==='ok') cls='warn'; }
+  if(g.in_affiancamento) msgs.push(`In affiancamento: ${s.affiancamenti_svolti||0}/${g.affiancamenti_richiesti} gare`);
+  return {cls, msgs};
+}
+// Avvisi per un'assegnazione giudice→gara (non bloccanti, quelli bloccanti li fa il DB)
+function avvisiAssegnazione(g, ga){
+  const a=[];
+  if(g.qualifica==='regionale' && isNaz(ga.classificazione)) a.push('Giudice Regionale su gara nazionale: serve deroga (art. 7 ter)');
+  if(g.societa && ga.societa_organizzatrice && g.societa.trim().toLowerCase()===ga.societa_organizzatrice.trim().toLowerCase()) a.push('Il giudice appartiene alla società organizzatrice (art. 4)');
+  const sem=semaforoGiudice(g); if(sem.cls==='err'||sem.cls==='grey') a.push(...sem.msgs);
+  const d=dispDiGara(ga.id).find(x=>x.giudice_id===g.id); if(d&&d.stato==='non_disponibile') a.push('Si è dichiarato NON disponibile');
+  const altra=S.conv.find(c=>c.giudice_id===g.id && c.gara_id!==ga.id && !['rifiutata','annullata'].includes(c.stato) && c.data_inizio<=(ga.data_fine||ga.data_inizio) && (c.data_fine||c.data_inizio)>=ga.data_inizio);
+  if(altra) a.push(`Già convocato lo stesso giorno: ${altra.titolo}`);
+  return a;
+}
+/* ===================== VISTE ===================== */
+const VIEWS = {};
+
+function selAnno(){ return `<select onchange="S.annoSportivo=this.value;render()">${anniSportiviDisponibili().map(a=>`<option ${a===S.annoSportivo?'selected':''}>${a}</option>`).join('')}</select>`; }
+function garaItem(g, extra=''){
+  const d=new Date(g.data_inizio+'T00:00:00');
+  const conf=confermatiGara(g);
+  const cop = g.stato==='annullata' ? pill('Annullata','grey') : g.stato==='svolta' ? pill('Svolta','ok') : conf>=g.fabbisogno_giudici ? pill(`${conf}/${g.fabbisogno_giudici} giudici`,'ok') : pill(`${conf}/${g.fabbisogno_giudici} giudici`,'err');
+  return `<div class="list-item clickable" onclick="openGara('${g.id}')" style="cursor:pointer">
+    <div class="date"><b>${d.getDate()}</b><span>${MESI_S[d.getMonth()]}</span></div>
+    <div class="body"><div class="t">${esc(g.titolo)}</div>
+      <div class="s">${esc(g.tipo_descrizione||g.tipo_codice||'')} · ${esc(g.classificazione||'')} · ${esc(g.comune||'')}${g.provincia?' ('+esc(g.provincia)+')':''}</div>
+      <div class="chip-row" style="margin:.25rem 0 0">${cop} ${g.indoor?pill('Indoor','grey'):''} ${extra}</div></div></div>`;
+}
+
+/* ---------- HOME ---------- */
+VIEWS.home = ()=> S.comitato ? homeComitato() : homeGiudice();
+
+function homeComitato(){
+  const oggi=today();
+  const prossime = S.gare.filter(g=>g.stato==='programmata' && g.data_inizio>=oggi).slice(0,8);
+  const scoperte = gareScoperte();
+  const proposte = S.conv.filter(c=>c.stato==='proposta' && c.data_inizio>=oggi);
+  const accettate = S.conv.filter(c=>c.stato==='accettata');
+  const daChiudere = S.conv.filter(c=>c.stato==='confermata' && c.data_inizio<oggi);
+  const rimbDaApprovare = S.conv.filter(c=>c.rimborso_stato==='compilato');
+  const problemi = S.giudici.filter(g=>g.attivo && semaforoGiudice(g).cls==='err');
+  const nonCollegati = S.profili.filter(p=>!p.giudice_id);
+  return `
+  <div class="kpis">
+    <div class="kpi ${scoperte.length?'err':'ok'}" onclick="S.filtri.gare={scoperte:true};go('gare')" style="cursor:pointer"><b>${scoperte.length}</b><span>Gare future scoperte</span></div>
+    <div class="kpi ${proposte.length?'warn':''}"><b>${proposte.length}</b><span>Convocazioni in attesa di risposta</span></div>
+    <div class="kpi ${accettate.length?'warn':''}"><b>${accettate.length}</b><span>Accettate da confermare</span></div>
+    <div class="kpi ${daChiudere.length?'warn':''}"><b>${daChiudere.length}</b><span>Gare passate da chiudere</span></div>
+    <div class="kpi ${rimbDaApprovare.length?'warn':''}" onclick="go('rimborsi')" style="cursor:pointer"><b>${rimbDaApprovare.length}</b><span>Rimborsi da approvare</span></div>
+    <div class="kpi ${problemi.length?'err':'ok'}" onclick="go('giudici')" style="cursor:pointer"><b>${problemi.length}</b><span>Giudici con requisiti mancanti</span></div>
+  </div>
+  ${nonCollegati.length?`<div class="alert warn">${nonCollegati.length} account registrat${nonCollegati.length>1?'i':'o'} non ancora collegat${nonCollegati.length>1?'i':'o'} a un giudice: <a href="#" onclick="go('impostazioni');return false">collega dalle impostazioni</a>.</div>`:''}
+  ${accettate.length?`<div class="card"><h3>Da confermare</h3>${accettate.map(c=>`<div class="list-item"><div class="body"><div class="t">${esc(c.cognome)} ${esc(c.nome)} ${pill(RUOLI_GARA[c.ruolo])}</div><div class="s">${esc(c.titolo)} · ${fmtD(c.data_inizio)}</div></div><button class="btn sm ok" onclick="cambiaStato('${c.id}','confermata')">Conferma</button></div>`).join('')}</div>`:''}
+  ${daChiudere.length?`<div class="card"><h3>Gare svolte da chiudere</h3><p class="small muted">Segna per ogni convocazione se il giudice era presente: alimenta i conteggi del report.</p>${daChiudere.map(c=>`<div class="list-item"><div class="body"><div class="t">${esc(c.cognome)} ${esc(c.nome)} ${pill(RUOLI_GARA[c.ruolo])}</div><div class="s">${esc(c.titolo)} · ${fmtD(c.data_inizio)}</div></div><div class="row"><button class="btn sm ok" onclick="cambiaStato('${c.id}','svolta')">Svolta</button><button class="btn sm danger" onclick="cambiaStato('${c.id}','assente')">Assente</button></div></div>`).join('')}</div>`:''}
+  <div class="card"><div class="section-title" style="margin-top:0"><h3>Prossime gare</h3><button class="btn sm" onclick="go('gare')">Tutte</button></div>
+    ${prossime.length?prossime.map(g=>garaItem(g)).join(''):'<p class="muted">Nessuna gara in programma. Sincronizza il calendario dalle impostazioni o inserisci una gara.</p>'}
+  </div>`;
+}
+
+function homeGiudice(){
+  if(!S.giudice) return `<div class="alert warn">Il tuo account non è ancora collegato a un profilo giudice. Il comitato lo farà a breve; nel frattempo puoi consultare il calendario gare.</div>${VIEWS.gare()}`;
+  const oggi=today(); const mie=S.conv.filter(c=>c.giudice_id===S.giudice.id);
+  const proposte=mie.filter(c=>c.stato==='proposta');
+  const prossime=mie.filter(c=>['accettata','confermata'].includes(c.stato) && c.data_inizio>=oggi);
+  const rimb=mie.filter(c=>['svolta','confermata'].includes(c.stato) && c.data_inizio<oggi && (!c.rimborso_stato||c.rimborso_stato==='da_compilare'));
+  const sem=semaforoGiudice(S.giudice);
+  const daDichiarare=S.gare.filter(g=>g.stato==='programmata' && g.data_inizio>=oggi && !dispDiGara(g.id).some(d=>d.giudice_id===S.giudice.id) && !mie.some(c=>c.gara_id===g.id));
+  return `
+  ${sem.cls!=='ok'?`<div class="alert ${sem.cls==='grey'?'warn':sem.cls}"><b>Requisiti</b><br>${sem.msgs.map(esc).join('<br>')}</div>`:''}
+  ${proposte.length?`<div class="card"><h3>Convocazioni da rispondere</h3>${proposte.map(c=>convCard(c)).join('')}</div>`:''}
+  <div class="kpis">
+    <div class="kpi"><b>${prossime.length}</b><span>Prossime gare</span></div>
+    <div class="kpi ${daDichiarare.length?'warn':''}" onclick="go('gare')" style="cursor:pointer"><b>${daDichiarare.length}</b><span>Gare senza tua disponibilità</span></div>
+    <div class="kpi ${rimb.length?'warn':''}" onclick="go('convocazioni')" style="cursor:pointer"><b>${rimb.length}</b><span>Rimborsi da compilare</span></div>
+    <div class="kpi"><b>${statoG(S.giudice.id).servizi_12m||0}</b><span>Servizi ultimi 12 mesi</span></div>
+  </div>
+  <div class="card"><h3>Le mie prossime gare</h3>${prossime.length?prossime.map(c=>convCard(c)).join(''):'<p class="muted">Nessuna convocazione confermata in programma.</p>'}</div>`;
+}
+
+/* ---------- GARE ---------- */
+VIEWS.gare = ()=>{
+  const f=S.filtri.gare||(S.filtri.gare={});
+  const anno=S.annoSportivo;
+  let list=gareAnno(anno);
+  if(f.q){ const q=f.q.toLowerCase(); list=list.filter(g=>[g.titolo,g.societa_organizzatrice,g.comune,g.tipo_descrizione].join(' ').toLowerCase().includes(q)); }
+  if(f.cls) list=list.filter(g=>g.classificazione===f.cls);
+  if(f.stato) list=list.filter(g=>g.stato===f.stato);
+  if(f.scoperte) list=list.filter(g=>g.stato==='programmata' && confermatiGara(g)<g.fabbisogno_giudici);
+  if(f.future!==false) list=list.filter(g=>(g.data_fine||g.data_inizio)>=today());
+  const classi=[...new Set(S.gare.map(g=>g.classificazione).filter(Boolean))].sort();
+  const byMonth=groupBy(list, g=>g.data_inizio.slice(0,7));
+  const mio = S.giudice ? (g)=>{ const d=dispDiGara(g.id).find(x=>x.giudice_id===S.giudice.id); const c=convDiGara(g.id).find(x=>x.giudice_id===S.giudice.id);
+      if(c) return pill(STATI_CONV[c.stato], STATI_CONV_CLS[c.stato]);
+      if(g.stato!=='programmata'||g.data_inizio<today()) return '';
+      return `<span class="avail-btns" onclick="event.stopPropagation()"><button class="${d&&d.stato==='disponibile'?'on-si':''}" onclick="setDisp('${g.id}','disponibile')">Disponibile</button><button class="${d&&d.stato==='non_disponibile'?'on-no':''}" onclick="setDisp('${g.id}','non_disponibile')">Non disp.</button></span>`; } : ()=>'';
+  return `
+  <div class="row between mb"><h2 style="margin:0">Gare ${selAnno()}</h2>${S.comitato?`<div class="row"><button class="btn sm" onclick="syncDlg()">↻ Sincronizza</button><button class="btn sm primary" onclick="garaForm()">+ Gara</button></div>`:''}</div>
+  <div class="filters"><input class="search" placeholder="Cerca gara, società, comune…" value="${esc(f.q||'')}" oninput="S.filtri.gare.q=this.value;render()">
+    <select onchange="S.filtri.gare.cls=this.value;render()"><option value="">Tutte le classificazioni</option>${classi.map(c=>`<option ${f.cls===c?'selected':''}>${esc(c)}</option>`).join('')}</select>
+    <select onchange="S.filtri.gare.stato=this.value;render()"><option value="">Tutti gli stati</option><option value="programmata" ${f.stato==='programmata'?'selected':''}>In programma</option><option value="svolta" ${f.stato==='svolta'?'selected':''}>Svolte</option><option value="annullata" ${f.stato==='annullata'?'selected':''}>Annullate</option></select>
+    <label class="chip ${f.scoperte?'on':''}" onclick="S.filtri.gare.scoperte=!S.filtri.gare.scoperte;render()">Solo scoperte</label>
+    <label class="chip ${f.future===false?'on':''}" onclick="S.filtri.gare.future=S.filtri.gare.future===false?true:false;render()">Anche passate</label>
+  </div>
+  ${list.length?Object.keys(byMonth).sort().map(m=>{ const [y,mm]=m.split('-'); return `<div class="month-h">${MESI[+mm-1]} ${y}</div><div class="card">${byMonth[m].map(g=>garaItem(g, mio(g))).join('')}</div>`; }).join(''):'<div class="card"><p class="muted">Nessuna gara con questi filtri.</p></div>'}`;
+};
+
+async function setDisp(gid, stato){
+  const ex=S.disp.find(d=>d.gara_id===gid && d.giudice_id===S.giudice.id);
+  let r;
+  if(ex && ex.stato===stato) r=await sb.from('disponibilita').delete().eq('id',ex.id);
+  else if(ex) r=await sb.from('disponibilita').update({stato}).eq('id',ex.id);
+  else r=await sb.from('disponibilita').insert({gara_id:gid, giudice_id:S.giudice.id, stato});
+  if(r.error) return err(r.error);
+  const d=await sb.from('disponibilita').select('*'); if(!d.error) S.disp=d.data; render();
+}
+
+function openGara(id){
+  const g=S.gare.find(x=>x.id===id); if(!g) return;
+  const conv=convDiGara(id), disp=dispDiGara(id);
+  const gname=(gid)=>nomeG(S.giudici.find(x=>x.id===gid));
+  const convHtml = conv.length ? conv.map(c=>`<div class="list-item"><div class="body"><div class="t">${esc(gname(c.giudice_id))} ${pill(RUOLI_GARA[c.ruolo])} ${c.deroga?pill('deroga','orange'):''}</div><div class="s">${pill(STATI_CONV[c.stato],STATI_CONV_CLS[c.stato])} ${c.motivo_rifiuto?'· '+esc(c.motivo_rifiuto):''}${c.referto_caricato?' · 📄 referto':''}</div></div>
+      ${S.comitato?`<div class="row">${c.stato==='proposta'||c.stato==='accettata'?`<button class="btn sm ok" onclick="cambiaStato('${c.id}','confermata')">Conferma</button>`:''}${c.stato==='confermata'?`<button class="btn sm ok" onclick="cambiaStato('${c.id}','svolta')">Svolta</button><button class="btn sm danger" onclick="cambiaStato('${c.id}','assente')">Assente</button>`:''}${!['svolta','annullata'].includes(c.stato)?`<button class="btn sm danger" onclick="cambiaStato('${c.id}','annullata')">✕</button>`:''}</div>`:''}</div>`).join('') : '<p class="muted">Nessuna convocazione.</p>';
+  const dispSi=disp.filter(d=>d.stato==='disponibile'), dispNo=disp.filter(d=>d.stato==='non_disponibile');
+  const html=`
+    <p class="muted small">${fmtDL(g.data_inizio)}${g.data_fine&&g.data_fine!==g.data_inizio?' → '+fmtDL(g.data_fine):''}</p>
+    <div class="chip-row">${pill(g.tipo_descrizione||g.tipo_codice||'-')} ${pill(g.classificazione||'-', isNaz(g.classificazione)?'orange':'')} ${g.indoor?pill('Indoor','grey'):''} ${pill(g.stato==='programmata'?'In programma':g.stato==='svolta'?'Svolta':'Annullata', g.stato==='annullata'?'grey':'info')} ${g.origine==='swen'?pill('arco.swen','grey'):pill('manuale','grey')}</div>
+    <p><b>${esc(g.societa_organizzatrice||'')}</b><br>${esc([g.indirizzo,g.cap,g.comune,g.provincia].filter(Boolean).join(', '))}${g.regione?' · '+esc(g.regione):''}<br>
+    ${g.email_riferimento?`<a href="mailto:${esc(g.email_riferimento)}">${esc(g.email_riferimento)}</a>`:''} ${g.coordinate_gps?`· <a target="_blank" href="https://maps.google.com/?q=${encodeURIComponent(g.coordinate_gps)}">Mappa</a>`:''}</p>
+    <p class="small">Percorsi: <b>${g.numero_percorsi}</b> · Giudici richiesti: <b>${g.fabbisogno_giudici}</b> · Confermati: <b>${confermatiGara(g)}</b>${g.giudice_swen?`<br>Giudice registrato su arco.swen: <b>${esc(g.giudice_swen)}</b>`:''}${g.swen_partecipanti?` · Partecipanti: ${g.swen_partecipanti}`:''}</p>
+    ${g.note?`<p class="small"><i>${esc(g.note)}</i></p>`:''}
+    <div class="section-title"><h3>Convocazioni</h3>${S.comitato&&g.stato==='programmata'?`<button class="btn sm primary" onclick="assegnaDlg('${g.id}')">+ Assegna giudice</button>`:''}</div>
+    ${convHtml}
+    <div class="section-title"><h3>Disponibilità dichiarate</h3></div>
+    <p class="small">${dispSi.length?'✅ '+dispSi.map(d=>esc(gname(d.giudice_id))).join(', '):'<span class="muted">Nessuna disponibilità dichiarata.</span>'}${dispNo.length?'<br>⛔ '+dispNo.map(d=>esc(gname(d.giudice_id))).join(', '):''}</p>`;
+  const actions=[]; if(S.comitato){ actions.push({t:'Modifica',fn:(id)=>{closeModal(id);garaForm(g.id);}}); }
+  actions.push({t:'Chiudi',cls:'navy',fn:(id)=>closeModal(id)});
+  openModal(g.titolo, html, actions);
+}
+
+function assegnaDlg(gid){
+  const ga=S.gare.find(x=>x.id===gid);
+  const giaConv=new Set(convDiGara(gid).map(c=>c.giudice_id));
+  const disp=dispDiGara(gid);
+  const cand=S.giudici.filter(g=>g.attivo && !giaConv.has(g.id));
+  const ord=(g)=>{ const d=disp.find(x=>x.giudice_id===g.id); return d?(d.stato==='disponibile'?0:2):1; };
+  const list=sortBy(cand, g=>ord(g)+'_'+g.cognome);
+  const html=`<p class="small muted">${esc(ga.titolo)} · ${fmtD(ga.data_inizio)} · ${esc(ga.classificazione||'')}</p>
+    <input class="f" placeholder="Cerca giudice…" oninput="document.querySelectorAll('#asg-list .list-item').forEach(r=>r.style.display=r.dataset.n.includes(this.value.toLowerCase())?'':'none')">
+    <div id="asg-list" style="max-height:55vh;overflow:auto;margin-top:.5rem">${list.map(g=>{ const d=disp.find(x=>x.giudice_id===g.id); const av=avvisiAssegnazione(g,ga); const sem=semaforoGiudice(g);
+      return `<div class="list-item" data-n="${esc(nomeG(g).toLowerCase())}"><div class="body"><div class="t"><span class="sem ${sem.cls}"></span>${esc(nomeG(g))} ${pill(QUALIFICHE[g.qualifica],g.qualifica==='nazionale'?'orange':'')} ${g.in_affiancamento?pill('affiancamento','info'):''} ${d?(d.stato==='disponibile'?pill('disponibile','ok'):pill('non disponibile','err')):pill('non ha risposto','grey')}</div>
+        <div class="s">${esc(g.comune||'')} ${g.provincia?'('+esc(g.provincia)+')':''} · ${statoG(g.id).servizi_12m||0} servizi/12m${av.length?'<br><span style="color:var(--warn)">⚠ '+av.map(esc).join(' · ')+'</span>':''}</div></div>
+        <button class="btn sm primary" onclick="assegnaConferma('${gid}','${g.id}')">Assegna</button></div>`; }).join('')}</div>`;
+  openModal('Assegna giudice', html, [{t:'Chiudi',fn:(id)=>closeModal(id)}]);
+}
+function assegnaConferma(gid, jid){
+  const ga=S.gare.find(x=>x.id===gid), g=S.giudici.find(x=>x.id===jid);
+  const av=avvisiAssegnazione(g,ga);
+  const needDeroga = g.qualifica==='regionale' && isNaz(ga.classificazione);
+  const ruoli = g.in_affiancamento ? ['affiancamento'] : (g.qualifica==='nazionale' && isNaz(ga.classificazione) ? ['giudice','coordinatore'] : ['giudice']);
+  const html=`<p><b>${esc(nomeG(g))}</b> → ${esc(ga.titolo)} (${fmtD(ga.data_inizio)})</p>
+    ${av.length?`<div class="alert warn">${av.map(esc).join('<br>')}</div>`:''}
+    <label class="f">Ruolo in gara</label><select class="f" id="asg-ruolo">${ruoli.map(r=>`<option value="${r}">${RUOLI_GARA[r]}</option>`).join('')}</select>
+    ${needDeroga?`<div class="check"><input type="checkbox" id="asg-deroga"><label for="asg-deroga">Autorizzo la deroga del comitato (art. 7 ter)</label></div>`:''}
+    <label class="f">Stato iniziale</label><select class="f" id="asg-stato"><option value="proposta">Proposta (il giudice deve accettare)</option><option value="confermata">Confermata direttamente</option></select>
+    <label class="f">Note</label><input class="f" id="asg-note">`;
+  openModal('Conferma assegnazione', html, [{t:'Annulla',fn:(id)=>closeModal(id)},{t:'Convoca',cls:'primary',fn:async(id)=>{
+    const rec={gara_id:gid, giudice_id:jid, ruolo:$('asg-ruolo').value, deroga:needDeroga?$('asg-deroga').checked:false, note:$('asg-note').value||null, created_by:S.user.id};
+    const stato=$('asg-stato').value;
+    const {data,error}=await sb.from('convocazioni').insert(rec).select().single(); if(error) return err(error);
+    if(stato==='confermata'){ const r2=await sb.from('convocazioni').update({stato:'confermata'}).eq('id',data.id); if(r2.error) return err(r2.error); }
+    closeModal(id); closeModal(); toast('Convocazione creata','ok'); await reload(); openGara(gid);
+  }}]);
+}
+async function cambiaStato(cid, stato){
+  const c=S.conv.find(x=>x.id===cid);
+  const go_=async(extra={})=>{ const {error}=await sb.from('convocazioni').update({stato,...extra}).eq('id',cid); if(error) return err(error); toast('Stato aggiornato: '+STATI_CONV[stato],'ok'); await reload(); const m=$('modals'); if(m.children.length){ m.innerHTML=''; if(c) openGara(c.gara_id); } };
+  if(stato==='rifiutata'){
+    openModal('Rifiuta convocazione', `<p class="small">Il regolamento (art. 11.2) richiede un giustificato motivo.</p><label class="f">Motivo</label><textarea class="f" id="rif-motivo"></textarea>`, [{t:'Annulla',fn:(id)=>closeModal(id)},{t:'Rifiuta',cls:'danger',fn:async(id)=>{ const m=$('rif-motivo').value.trim(); if(!m) return toast('Indica il motivo','err'); closeModal(id); await go_({motivo_rifiuto:m}); }}]);
+  } else if(stato==='annullata'){ confirmDlg('Annulla convocazione', 'Annullare la convocazione di '+esc(c?c.cognome+' '+c.nome:'')+'?', ()=>go_(), 'danger'); }
+  else await go_();
+}
+function garaForm(id){
+  const g=id?S.gare.find(x=>x.id===id):{data_inizio:today(),numero_percorsi:1,fabbisogno_giudici:1,stato:'programmata',classificazione:'Regionale',origine:'manuale'};
+  const cls=['Provinciale','Regionale','Interregionale','Nazionale','Internazionale','Europeo','Amichevole'];
+  const tipi=[...new Set(S.gare.map(x=>x.tipo_descrizione).filter(Boolean))].sort();
+  const html=`
+    ${g.origine==='swen'?'<div class="alert info small">Gara importata da arco.swen: titolo, date, luogo e tipo vengono riallineati a ogni sincronizzazione; percorsi, fabbisogno, stato e note restano tuoi.</div>':''}
+    <label class="f">Titolo</label><input class="f" id="gf-titolo" value="${esc(g.titolo||'')}">
+    <div class="grid2"><div><label class="f">Data inizio</label><input class="f" type="date" id="gf-di" value="${g.data_inizio||''}"></div><div><label class="f">Data fine (se più giorni)</label><input class="f" type="date" id="gf-df" value="${g.data_fine||''}"></div></div>
+    <div class="grid2"><div><label class="f">Tipo di gara</label><input class="f" id="gf-tipo" list="tipi" value="${esc(g.tipo_descrizione||'')}"><datalist id="tipi">${tipi.map(t=>`<option value="${esc(t)}">`).join('')}</datalist></div>
+    <div><label class="f">Classificazione</label><select class="f" id="gf-cls">${cls.map(c=>`<option ${g.classificazione===c?'selected':''}>${c}</option>`).join('')}</select></div></div>
+    <label class="f">Società organizzatrice</label><input class="f" id="gf-soc" value="${esc(g.societa_organizzatrice||'')}">
+    <div class="grid3"><div><label class="f">Comune</label><input class="f" id="gf-com" value="${esc(g.comune||'')}"></div><div><label class="f">Provincia</label><input class="f" id="gf-prov" maxlength="2" value="${esc(g.provincia||'')}"></div><div><label class="f">Regione</label><input class="f" id="gf-reg" value="${esc(g.regione||'')}"></div></div>
+    <label class="f">Indirizzo</label><input class="f" id="gf-ind" value="${esc(g.indirizzo||'')}">
+    <div class="grid3"><div><label class="f">Percorsi</label><input class="f" type="number" min="1" id="gf-perc" value="${g.numero_percorsi}" oninput="$('gf-fab').value=Math.max(+this.value||1,1)"></div><div><label class="f">Giudici richiesti</label><input class="f" type="number" min="1" id="gf-fab" value="${g.fabbisogno_giudici}"></div><div><label class="f">Stato</label><select class="f" id="gf-stato"><option value="programmata" ${g.stato==='programmata'?'selected':''}>In programma</option><option value="svolta" ${g.stato==='svolta'?'selected':''}>Svolta</option><option value="annullata" ${g.stato==='annullata'?'selected':''}>Annullata</option></select></div></div>
+    <div class="check"><input type="checkbox" id="gf-indoor" ${g.indoor?'checked':''}><label for="gf-indoor">Indoor</label></div>
+    <label class="f">Email riferimento</label><input class="f" id="gf-email" value="${esc(g.email_riferimento||'')}">
+    <label class="f">Note comitato</label><textarea class="f" id="gf-note">${esc(g.note||'')}</textarea>`;
+  const actions=[{t:'Annulla',fn:(mid)=>closeModal(mid)},{t:'Salva',cls:'primary',fn:async(mid)=>{
+    const rec={titolo:$('gf-titolo').value.trim(), data_inizio:$('gf-di').value, data_fine:$('gf-df').value||null, tipo_descrizione:$('gf-tipo').value||null, classificazione:$('gf-cls').value, societa_organizzatrice:$('gf-soc').value||null, comune:$('gf-com').value||null, provincia:$('gf-prov').value.toUpperCase()||null, regione:$('gf-reg').value||null, indirizzo:$('gf-ind').value||null, numero_percorsi:+$('gf-perc').value||1, fabbisogno_giudici:+$('gf-fab').value||1, stato:$('gf-stato').value, indoor:$('gf-indoor').checked, email_riferimento:$('gf-email').value||null, note:$('gf-note').value||null};
+    if(!rec.titolo||!rec.data_inizio) return toast('Titolo e data sono obbligatori','err');
+    rec.anno_sportivo=annoSportivoDi(rec.data_inizio);
+    if(!id){ rec.tipo_codice=(rec.tipo_descrizione||'').toUpperCase().replace(/[^A-Z0-9]+/g,'_'); }
+    const r = id ? await sb.from('gare').update(rec).eq('id',id) : await sb.from('gare').insert(rec);
+    if(r.error) return err(r.error); closeModal(mid); toast('Gara salvata','ok'); await reload();
+  }}];
+  if(id) actions.unshift({t:'Elimina',cls:'danger',fn:(mid)=>confirmDlg('Elimina gara','Eliminare la gara e tutte le convocazioni collegate?',async()=>{ const {error}=await sb.from('gare').delete().eq('id',id); if(error) return err(error); closeModal(mid); toast('Gara eliminata'); await reload(); },'danger')});
+  openModal(id?'Modifica gara':'Nuova gara', html, actions);
+}
+
+/* ---------- GIUDICI (comitato) ---------- */
+VIEWS.giudici = ()=>{
+  const f=S.filtri.giudici||(S.filtri.giudici={});
+  let list=S.giudici;
+  if(f.q){ const q=f.q.toLowerCase(); list=list.filter(g=>[g.cognome,g.nome,g.comune,g.provincia,g.societa].join(' ').toLowerCase().includes(q)); }
+  if(f.qual) list=list.filter(g=>g.qualifica===f.qual);
+  if(!f.inattivi) list=list.filter(g=>g.attivo);
+  if(f.problemi) list=list.filter(g=>semaforoGiudice(g).cls!=='ok');
+  return `<div class="row between mb"><h2 style="margin:0">Giudici <span class="muted small">${list.length}</span></h2><div class="row"><button class="btn sm" onclick="syncDlg('albo')">↻ Albo</button><button class="btn sm" onclick="exportGiudici()">⬇ Excel</button><button class="btn sm primary" onclick="giudiceForm()">+ Giudice</button></div></div>
+  <div class="filters"><input class="search" placeholder="Cerca…" value="${esc(f.q||'')}" oninput="S.filtri.giudici.q=this.value;render()">
+    <select onchange="S.filtri.giudici.qual=this.value;render()"><option value="">Tutte le qualifiche</option>${Object.entries(QUALIFICHE).map(([k,v])=>`<option value="${k}" ${f.qual===k?'selected':''}>${v}</option>`).join('')}</select>
+    <label class="chip ${f.problemi?'on':''}" onclick="S.filtri.giudici.problemi=!S.filtri.giudici.problemi;render()">Con avvisi</label>
+    <label class="chip ${f.inattivi?'on':''}" onclick="S.filtri.giudici.inattivi=!S.filtri.giudici.inattivi;render()">Anche non attivi</label></div>
+  <div class="card">${list.map(g=>{ const sem=semaforoGiudice(g), s=statoG(g.id); const prof=S.profili.find(p=>p.giudice_id===g.id);
+    return `<div class="list-item clickable" onclick="openGiudice('${g.id}')" style="cursor:pointer"><div class="body"><div class="t"><span class="sem ${sem.cls}"></span>${esc(nomeG(g))} ${pill(QUALIFICHE[g.qualifica],g.qualifica==='nazionale'?'orange':g.qualifica==='emerito'?'info':'')} ${g.in_affiancamento?pill('affiancamento','info'):''} ${!g.attivo?pill('non attivo','grey'):''} ${g.presente_in_albo===false?pill('non in albo','err'):''} ${prof?(prof.ruolo==='comitato'?pill('comitato','navy'):''):pill('senza account','grey')}</div>
+      <div class="s">${esc(g.comune||'')} ${g.provincia?'('+esc(g.provincia)+')':''} ${g.societa?'· '+esc(g.societa):''} · ${s.servizi_12m||0} servizi e ${s.aggiornamenti_12m||0} aggiornamenti negli ultimi 12 mesi${sem.msgs.length&&sem.cls!=='ok'?'<br><span style="color:var(--'+(sem.cls==='err'?'err':'warn')+')">'+sem.msgs.map(esc).join(' · ')+'</span>':''}</div></div></div>`; }).join('')||'<p class="muted">Nessun giudice.</p>'}</div>`;
+};
+function exportGiudici(){
+  exportXlsx(`giudici_${today()}.xlsx`, { Giudici: S.giudici.map(g=>{ const s=statoG(g.id); return {Cognome:g.cognome, Nome:g.nome, Qualifica:QUALIFICHE[g.qualifica], 'In affiancamento':g.in_affiancamento?'sì':'', Attivo:g.attivo?'sì':'no', Email:g.email, Telefono:g.telefono, Comune:g.comune, Provincia:g.provincia, Regione:g.regione, Società:g.societa, 'Scadenza tessera':g.scadenza_tessera, 'Scadenza certificato':g.scadenza_certificato, 'Servizi 12 mesi':s.servizi_12m, 'Aggiornamenti 12 mesi':s.aggiornamenti_12m, 'Ultimo servizio':s.ultimo_servizio, 'ID albo':g.albo_id, 'In albo':g.presente_in_albo==null?'':(g.presente_in_albo?'sì':'no'), Note:g.note}; }) });
+}
+function openGiudice(id){
+  const g=S.giudici.find(x=>x.id===id); const s=statoG(id); const sem=semaforoGiudice(g);
+  const mie=sortBy(S.conv.filter(c=>c.giudice_id===id), c=>c.data_inizio, true);
+  const agg=S.aggiornamenti.filter(a=>a.giudice_id===id);
+  const html=`
+    <div class="chip-row">${pill(QUALIFICHE[g.qualifica],g.qualifica==='nazionale'?'orange':'')} ${g.in_affiancamento?pill(`affiancamento ${s.affiancamenti_svolti||0}/${g.affiancamenti_richiesti}`,'info'):''} ${g.attivo?pill('attivo','ok'):pill('non attivo','grey')} ${g.origine==='albo'?pill('da albo','grey'):''}</div>
+    ${sem.msgs.length?`<div class="alert ${sem.cls==='ok'?'info':sem.cls==='grey'?'warn':sem.cls}">${sem.msgs.map(esc).join('<br>')}</div>`:''}
+    <p class="small">${g.email?`✉ <a href="mailto:${esc(g.email)}">${esc(g.email)}</a>`:''} ${g.telefono?`· ☎ <a href="tel:${esc(g.telefono)}">${esc(g.telefono)}</a>`:''}<br>
+    ${esc([g.indirizzo,g.cap,g.comune,g.provincia].filter(Boolean).join(', '))}${g.regione?' · '+esc(g.regione):''}${g.societa?'<br>Società: '+esc(g.societa):''}
+    ${g.data_nascita?'<br>Nato/a il '+fmtD(g.data_nascita)+' ('+eta(g.data_nascita)+' anni)':''}${g.data_inizio_attivita?' · Giudice dal '+fmtD(g.data_inizio_attivita):''}<br>
+    Tessera RCT: <b>${g.scadenza_tessera?fmtD(g.scadenza_tessera):'—'}</b> · Certificato medico: <b>${g.scadenza_certificato?fmtD(g.scadenza_certificato):'—'}</b></p>
+    ${g.note?`<p class="small"><i>${esc(g.note)}</i></p>`:''}
+    <div class="kpis"><div class="kpi"><b>${s.servizi_12m||0}</b><span>Servizi 12 mesi</span></div><div class="kpi"><b>${s.aggiornamenti_12m||0}</b><span>Aggiornamenti 12 mesi</span></div><div class="kpi"><b>${mie.filter(c=>c.stato==='svolta').length}</b><span>Gare svolte totali</span></div><div class="kpi"><b>${s.ultimo_servizio?fmtD(s.ultimo_servizio):'—'}</b><span>Ultimo servizio</span></div></div>
+    <div class="section-title"><h3>Aggiornamenti tecnici</h3><button class="btn sm" onclick="aggForm('${id}')">+ Aggiungi</button></div>
+    ${agg.length?agg.map(a=>`<div class="list-item"><div class="body"><div class="t">${esc(a.descrizione)}</div><div class="s">${fmtD(a.data)}${a.ore?' · '+a.ore+' ore':''}</div></div><button class="btn sm danger" onclick="delAgg('${a.id}','${id}')">✕</button></div>`).join(''):'<p class="muted small">Nessun aggiornamento registrato.</p>'}
+    <div class="section-title"><h3>Convocazioni</h3></div>
+    ${mie.length?mie.slice(0,30).map(c=>`<div class="list-item"><div class="body"><div class="t">${esc(c.titolo)}</div><div class="s">${fmtD(c.data_inizio)} · ${esc(c.classificazione||'')} · ${RUOLI_GARA[c.ruolo]}</div></div>${pill(STATI_CONV[c.stato],STATI_CONV_CLS[c.stato])}</div>`).join(''):'<p class="muted small">Nessuna convocazione.</p>'}`;
+  openModal(nomeG(g), html, [{t:'Modifica',fn:(mid)=>{closeModal(mid);giudiceForm(id);}},{t:'Chiudi',cls:'navy',fn:(mid)=>closeModal(mid)}]);
+}
+function giudiceForm(id, self=false){
+  const g=id?S.giudici.find(x=>x.id===id):{qualifica:'regionale',attivo:true,in_affiancamento:false,affiancamenti_richiesti:2,origine:'manuale'};
+  const ro = self && !S.comitato; // il giudice modifica solo i propri contatti
+  const html=`
+    <div class="grid2"><div><label class="f">Cognome</label><input class="f" id="jf-cognome" value="${esc(g.cognome||'')}" ${ro?'readonly':''}></div><div><label class="f">Nome</label><input class="f" id="jf-nome" value="${esc(g.nome||'')}" ${ro?'readonly':''}></div></div>
+    <div class="grid2"><div><label class="f">Email</label><input class="f" id="jf-email" type="email" value="${esc(g.email||'')}"></div><div><label class="f">Telefono</label><input class="f" id="jf-tel" value="${esc(g.telefono||'')}"></div></div>
+    <label class="f">Indirizzo di residenza</label><input class="f" id="jf-ind" value="${esc(g.indirizzo||'')}">
+    <div class="grid3"><div><label class="f">CAP</label><input class="f" id="jf-cap" value="${esc(g.cap||'')}"></div><div><label class="f">Comune</label><input class="f" id="jf-com" value="${esc(g.comune||'')}"></div><div><label class="f">Provincia</label><input class="f" id="jf-prov" maxlength="2" value="${esc(g.provincia||'')}"></div></div>
+    <div class="grid2"><div><label class="f">Regione</label><input class="f" id="jf-reg" value="${esc(g.regione||'')}"></div><div><label class="f">Società di appartenenza</label><input class="f" id="jf-soc" value="${esc(g.societa||'')}"></div></div>
+    <div class="grid3"><div><label class="f">Data di nascita</label><input class="f" type="date" id="jf-dn" value="${g.data_nascita||''}"></div><div><label class="f">Scadenza tessera RCT</label><input class="f" type="date" id="jf-st" value="${g.scadenza_tessera||''}"></div><div><label class="f">Scadenza certificato medico</label><input class="f" type="date" id="jf-sc" value="${g.scadenza_certificato||''}"></div></div>
+    ${!ro?`<hr style="border:0;border-top:1px solid var(--line);margin:1rem 0">
+    <div class="grid2"><div><label class="f">Qualifica</label><select class="f" id="jf-qual">${Object.entries(QUALIFICHE).map(([k,v])=>`<option value="${k}" ${g.qualifica===k?'selected':''}>${v}</option>`).join('')}</select></div><div><label class="f">Giudice dal</label><input class="f" type="date" id="jf-dia" value="${g.data_inizio_attivita||''}"></div></div>
+    <div class="grid2"><div class="check"><input type="checkbox" id="jf-aff" ${g.in_affiancamento?'checked':''}><label for="jf-aff">In affiancamento (art. 2)</label></div><div><label class="f">Gare di affiancamento richieste</label><input class="f" type="number" min="1" id="jf-affn" value="${g.affiancamenti_richiesti||2}"></div></div>
+    <div class="grid2"><div class="check"><input type="checkbox" id="jf-att" ${g.attivo?'checked':''}><label for="jf-att">Attivo</label></div><div><label class="f">Macroarea</label><input class="f" id="jf-macro" value="${esc(g.macroarea||'')}"></div></div>
+    <label class="f">ID Albo Nazionale</label><input class="f" id="jf-albo" value="${esc(g.albo_id||'')}">
+    <label class="f">Note comitato</label><textarea class="f" id="jf-note">${esc(g.note||'')}</textarea>`:''}`;
+  const actions=[{t:'Annulla',fn:(mid)=>closeModal(mid)},{t:'Salva',cls:'primary',fn:async(mid)=>{
+    const rec={email:$('jf-email').value.trim()||null, telefono:$('jf-tel').value||null, indirizzo:$('jf-ind').value||null, cap:$('jf-cap').value||null, comune:$('jf-com').value||null, provincia:$('jf-prov').value.toUpperCase()||null, regione:$('jf-reg').value||null, societa:$('jf-soc').value||null, data_nascita:$('jf-dn').value||null, scadenza_tessera:$('jf-st').value||null, scadenza_certificato:$('jf-sc').value||null};
+    if(!ro){ Object.assign(rec,{cognome:$('jf-cognome').value.trim(), nome:$('jf-nome').value.trim(), qualifica:$('jf-qual').value, data_inizio_attivita:$('jf-dia').value||null, in_affiancamento:$('jf-aff').checked, affiancamenti_richiesti:+$('jf-affn').value||2, attivo:$('jf-att').checked, macroarea:$('jf-macro').value||null, albo_id:$('jf-albo').value||null, note:$('jf-note').value||null}); if(!rec.cognome||!rec.nome) return toast('Cognome e nome obbligatori','err'); }
+    const r = id ? await sb.from('giudici').update(rec).eq('id',id) : await sb.from('giudici').insert(rec);
+    if(r.error) return err(r.error); closeModal(mid); toast('Salvato','ok'); await reload();
+  }}];
+  if(id && S.comitato) actions.unshift({t:'Elimina',cls:'danger',fn:(mid)=>confirmDlg('Elimina giudice','Eliminare il giudice e tutto lo storico collegato? In genere è meglio impostarlo come "non attivo".',async()=>{ const {error}=await sb.from('giudici').delete().eq('id',id); if(error) return err(error); closeModal(mid); await reload(); },'danger')});
+  openModal(id?(self?'I miei dati':'Modifica giudice'):'Nuovo giudice', html, actions);
+}
+function aggForm(jid){
+  openModal('Aggiornamento tecnico', `<label class="f">Data</label><input class="f" type="date" id="ag-data" value="${today()}"><label class="f">Descrizione</label><input class="f" id="ag-desc" placeholder="es. Aggiornamento annuale GdG 2026"><label class="f">Ore</label><input class="f" type="number" step="0.5" id="ag-ore">`,
+    [{t:'Annulla',fn:(m)=>closeModal(m)},{t:'Salva',cls:'primary',fn:async(m)=>{ const rec={giudice_id:jid, data:$('ag-data').value, descrizione:$('ag-desc').value.trim(), ore:+$('ag-ore').value||null}; if(!rec.data||!rec.descrizione) return toast('Data e descrizione obbligatorie','err'); const {error}=await sb.from('aggiornamenti').insert(rec); if(error) return err(error); closeModal(m); toast('Aggiornamento registrato','ok'); await reload(); if(S.comitato){ closeModal(); openGiudice(jid); } }}]);
+}
+async function delAgg(id, jid){ const {error}=await sb.from('aggiornamenti').delete().eq('id',id); if(error) return err(error); await reload(); if(S.comitato){ closeModal(); openGiudice(jid); } }
+
+/* ---------- CONVOCAZIONI (giudice) ---------- */
+function convCard(c){
+  const oggi=today(); const passata=c.data_inizio<oggi;
+  const btns=[];
+  if(c.stato==='proposta'){ btns.push(`<button class="btn sm ok" onclick="cambiaStato('${c.id}','accettata')">Accetto</button>`, `<button class="btn sm danger" onclick="cambiaStato('${c.id}','rifiutata')">Rifiuto</button>`); }
+  if(['confermata','svolta'].includes(c.stato) && passata){ btns.push(`<button class="btn sm ${c.rimborso_stato&&c.rimborso_stato!=='da_compilare'?'':'primary'}" onclick="rimborsoForm('${c.id}')">💶 ${c.rimborso_stato?STATI_RIMB[c.rimborso_stato]:'Rimborso'}</button>`, `<button class="btn sm" onclick="refertoDlg('${c.id}')">📄 ${c.referto_caricato?'Referto ✓':'Referto'}</button>`); }
+  return `<div class="list-item"><div class="body"><div class="t">${esc(c.titolo)} ${pill(RUOLI_GARA[c.ruolo])} ${c.deroga?pill('deroga','orange'):''}</div>
+    <div class="s">${fmtDL(c.data_inizio)} · ${esc(c.classificazione||'')} · ${esc(c.societa_organizzatrice||'')}<br>${pill(STATI_CONV[c.stato],STATI_CONV_CLS[c.stato])} ${c.motivo_rifiuto?' '+esc(c.motivo_rifiuto):''} ${c.rimborso_totale!=null?' · Rimborso '+fmtE(c.rimborso_totale):''}</div>
+    ${btns.length?`<div class="row" style="margin-top:.4rem">${btns.join('')}</div>`:''}</div>
+    <button class="btn sm" onclick="openGara('${c.gara_id}')">›</button></div>`;
+}
+VIEWS.convocazioni = ()=>{
+  if(!S.giudice) return '<div class="alert warn">Account non ancora collegato a un giudice.</div>';
+  const mie=sortBy(S.conv.filter(c=>c.giudice_id===S.giudice.id), c=>c.data_inizio, true);
+  const anno=S.annoSportivo; const list=mie.filter(c=>c.anno_sportivo===anno);
+  const tot=list.filter(c=>c.stato==='svolta').length;
+  const rimb=list.reduce((s,c)=>s+(+c.rimborso_totale||0),0);
+  return `<div class="row between mb"><h2 style="margin:0">Le mie convocazioni ${selAnno()}</h2></div>
+    <div class="kpis"><div class="kpi"><b>${tot}</b><span>Gare svolte</span></div><div class="kpi"><b>${list.filter(c=>['accettata','confermata'].includes(c.stato)).length}</b><span>In programma</span></div><div class="kpi"><b>${fmtE(rimb)}</b><span>Rimborsi (tutti gli stati)</span></div></div>
+    <div class="card">${list.length?list.map(convCard).join(''):'<p class="muted">Nessuna convocazione in questo anno sportivo.</p>'}</div>`;
+};
+
+/* ---------- RIMBORSO ---------- */
+async function rimborsoForm(cid){
+  const c=S.conv.find(x=>x.id===cid); const p=param(c.anno_sportivo);
+  const {data:ex}=await sb.from('rimborsi').select('*').eq('convocazione_id',cid).maybeSingle();
+  const r = ex || { modalita:p.modalita_default||'km_spese', km:0, tariffa_km:p.tariffa_km||0, gettone: c.ruolo==='coordinatore'?p.gettone_coordinatore:(isNaz(c.classificazione)?p.gettone_nazionale:p.gettone_regionale), spese:[], importo_manuale:null, stato:'da_compilare', note:'' };
+  const locked = !S.comitato && ['approvato','liquidato'].includes(r.stato);
+  const html=`<p class="small muted">${esc(c.titolo)} · ${fmtD(c.data_inizio)} · ${esc(nomeG(S.giudici.find(g=>g.id===c.giudice_id)))}</p>
+    ${locked?'<div class="alert info small">Rimborso già approvato: non modificabile.</div>':''}
+    <label class="f">Modalità</label><select class="f" id="rf-mod" onchange="rfCalc()" ${locked?'disabled':''}>${Object.entries(MODALITA_RIMB).filter(([k])=>S.comitato||k!=='manuale').map(([k,v])=>`<option value="${k}" ${r.modalita===k?'selected':''}>${v}</option>`).join('')}</select>
+    <div id="rf-km-box"><div class="grid2"><div><label class="f">Km totali (andata e ritorno)</label><input class="f" type="number" step="0.1" id="rf-km" value="${r.km}" oninput="rfCalc()" ${locked?'readonly':''}></div><div><label class="f">Tariffa €/km</label><input class="f" type="number" step="0.001" id="rf-tar" value="${r.tariffa_km}" oninput="rfCalc()" ${S.comitato&&!locked?'':'readonly'}></div></div>
+    <div id="rf-get-box"><label class="f">Gettone</label><input class="f" type="number" step="0.01" id="rf-get" value="${r.gettone}" oninput="rfCalc()" ${S.comitato&&!locked?'':'readonly'}></div>
+    <label class="f">Spese documentate</label><div id="rf-spese">${(r.spese||[]).map(s=>rfSpesaRow(s)).join('')}</div>${locked?'':'<button class="btn sm" onclick="$(\'rf-spese\').insertAdjacentHTML(\'beforeend\',rfSpesaRow({}))">+ Voce di spesa</button>'}</div>
+    <div id="rf-man-box"><label class="f">Importo</label><input class="f" type="number" step="0.01" id="rf-man" value="${r.importo_manuale??''}" oninput="rfCalc()"></div>
+    <label class="f">Note</label><input class="f" id="rf-note" value="${esc(r.note||'')}" ${locked?'readonly':''}>
+    <p class="right" style="font-size:1.2rem;margin-top:.8rem">Totale: <b id="rf-tot">${fmtE(r.totale||0)}</b> ${pill(STATI_RIMB[r.stato],STATI_RIMB_CLS[r.stato])}</p>`;
+  const save=async(mid, stato)=>{
+    const spese=[...document.querySelectorAll('#rf-spese .expense-row')].map(row=>({descrizione:row.children[0].value, importo:+row.children[1].value||0})).filter(s=>s.descrizione||s.importo);
+    const rec={convocazione_id:cid, modalita:$('rf-mod').value, km:+$('rf-km').value||0, tariffa_km:+$('rf-tar').value||0, gettone:+$('rf-get').value||0, spese, importo_manuale:$('rf-man').value===''?null:+$('rf-man').value, note:$('rf-note').value||null, stato};
+    if(stato==='liquidato') rec.data_liquidazione=today();
+    const res = ex ? await sb.from('rimborsi').update(rec).eq('id',ex.id) : await sb.from('rimborsi').insert(rec);
+    if(res.error) return err(res.error); closeModal(mid); toast('Rimborso salvato: '+STATI_RIMB[stato],'ok'); await reload();
+  };
+  const actions=[{t:'Chiudi',fn:(m)=>closeModal(m)}];
+  if(!locked){
+    if(!S.comitato){ actions.push({t:'Salva bozza',fn:(m)=>save(m,'da_compilare')},{t:'Invia al comitato',cls:'primary',fn:(m)=>save(m,'compilato')}); }
+    else { actions.push({t:'Salva',fn:(m)=>save(m,r.stato==='da_compilare'?'compilato':r.stato)}); if(r.stato!=='liquidato') actions.push({t:'Approva',cls:'ok',fn:(m)=>save(m,'approvato')}); if(r.stato==='approvato') actions.push({t:'Liquida',cls:'primary',fn:(m)=>save(m,'liquidato')}); }
+  }
+  openModal('Rimborso spese', html, actions); rfCalc();
+}
+function rfSpesaRow(s){ return `<div class="expense-row"><input class="f" placeholder="Descrizione (pedaggio, vitto…)" value="${esc(s.descrizione||'')}"><input class="f" type="number" step="0.01" placeholder="€" value="${s.importo??''}" oninput="rfCalc()"><button class="btn sm danger" onclick="this.parentNode.remove();rfCalc()">✕</button></div>`; }
+function rfCalc(){
+  const m=$('rf-mod').value; $('rf-km-box').classList.toggle('hidden', m==='manuale'); $('rf-get-box').classList.toggle('hidden', m!=='gettone_km'); $('rf-man-box').classList.toggle('hidden', m!=='manuale');
+  const spese=[...document.querySelectorAll('#rf-spese .expense-row')].reduce((s,row)=>s+(+row.children[1].value||0),0);
+  let tot=0; if(m==='km_spese') tot=(+$('rf-km').value||0)*(+$('rf-tar').value||0)+spese; else if(m==='gettone_km') tot=(+$('rf-get').value||0)+(+$('rf-km').value||0)*(+$('rf-tar').value||0)+spese; else tot=+$('rf-man').value||0;
+  $('rf-tot').textContent=fmtE(tot);
+}
+
+/* ---------- REFERTO ---------- */
+async function refertoDlg(cid){
+  const c=S.conv.find(x=>x.id===cid);
+  const {data:list}=await sb.from('referti').select('*').eq('convocazione_id',cid).order('created_at');
+  const html=`<p class="small muted">${esc(c.titolo)} · ${fmtD(c.data_inizio)}</p>
+    ${(list||[]).length?list.map(f=>`<div class="list-item"><div class="body"><div class="t">${esc(f.nome_file)}</div><div class="s">${new Date(f.created_at).toLocaleString('it-IT')}${f.dimensione?' · '+Math.round(f.dimensione/1024)+' KB':''}</div></div><button class="btn sm" onclick="scaricaReferto('${esc(f.storage_path)}','${esc(f.nome_file)}')">⬇</button>${S.comitato?`<button class="btn sm danger" onclick="delReferto('${f.id}','${esc(f.storage_path)}','${cid}')">✕</button>`:''}</div>`).join(''):'<p class="muted small">Nessun referto caricato. L\'invio ufficiale resta quello previsto dalla Commissione (art. 14); qui puoi conservarne una copia.</p>'}
+    <label class="f">Carica file (PDF o immagine, max 10 MB)</label><input class="f" type="file" id="rf-file" accept=".pdf,image/*">`;
+  openModal('Referto di gara', html, [{t:'Chiudi',fn:(m)=>closeModal(m)},{t:'Carica',cls:'primary',fn:async(m)=>{
+    const f=$('rf-file').files[0]; if(!f) return toast('Seleziona un file','err');
+    const path=`${cid}/${Date.now()}_${f.name.replace(/[^\w.\-]+/g,'_')}`;
+    const up=await sb.storage.from('referti').upload(path, f); if(up.error) return err(up.error);
+    const {error}=await sb.from('referti').insert({convocazione_id:cid, storage_path:path, nome_file:f.name, dimensione:f.size, caricato_da:S.user.id}); if(error) return err(error);
+    closeModal(m); toast('Referto caricato','ok'); await reload();
+  }}]);
+}
+async function scaricaReferto(path, name){ const {data,error}=await sb.storage.from('referti').download(path); if(error) return err(error); download(name, data); }
+async function delReferto(id, path, cid){ confirmDlg('Elimina referto','Eliminare il file?',async()=>{ await sb.storage.from('referti').remove([path]); const {error}=await sb.from('referti').delete().eq('id',id); if(error) return err(error); closeModal(); await reload(); refertoDlg(cid); },'danger'); }
+
+/* ---------- RIMBORSI (comitato) ---------- */
+VIEWS.rimborsi = ()=>{
+  const f=S.filtri.rimb||(S.filtri.rimb={});
+  let list=S.conv.filter(c=>c.anno_sportivo===S.annoSportivo && ['confermata','svolta'].includes(c.stato) && c.data_inizio<=today());
+  if(f.stato) list=list.filter(c=>(c.rimborso_stato||'da_compilare')===f.stato);
+  list=sortBy(list, c=>c.data_inizio, true);
+  const tot=(st)=>list.filter(c=>c.rimborso_stato===st).reduce((s,c)=>s+(+c.rimborso_totale||0),0);
+  return `<div class="row between mb"><h2 style="margin:0">Rimborsi ${selAnno()}</h2><button class="btn sm" onclick="exportRimborsi()">⬇ Excel</button></div>
+  <div class="kpis"><div class="kpi warn"><b>${fmtE(tot('compilato'))}</b><span>Da approvare</span></div><div class="kpi"><b>${fmtE(tot('approvato'))}</b><span>Approvati da liquidare</span></div><div class="kpi ok"><b>${fmtE(tot('liquidato'))}</b><span>Liquidati</span></div><div class="kpi"><b>${list.filter(c=>!c.rimborso_stato||c.rimborso_stato==='da_compilare').length}</b><span>Non ancora compilati</span></div></div>
+  <div class="filters"><select onchange="S.filtri.rimb.stato=this.value;render()"><option value="">Tutti</option>${Object.entries(STATI_RIMB).map(([k,v])=>`<option value="${k}" ${f.stato===k?'selected':''}>${v}</option>`).join('')}</select></div>
+  <div class="card tbl-wrap"><table class="tbl"><thead><tr><th>Data</th><th>Gara</th><th>Giudice</th><th>Ruolo</th><th>Stato</th><th class="num">Totale</th><th></th></tr></thead><tbody>
+  ${list.map(c=>`<tr class="clickable" onclick="rimborsoForm('${c.id}')"><td>${fmtD(c.data_inizio)}</td><td>${esc(c.titolo)}</td><td>${esc(c.cognome+' '+c.nome)}</td><td>${RUOLI_GARA[c.ruolo]}</td><td>${pill(STATI_RIMB[c.rimborso_stato||'da_compilare'],STATI_RIMB_CLS[c.rimborso_stato||'da_compilare'])}</td><td class="num">${c.rimborso_totale!=null?fmtE(c.rimborso_totale):'—'}</td><td>›</td></tr>`).join('')||'<tr><td colspan="7" class="muted">Nessuna gara svolta nell\'anno.</td></tr>'}</tbody></table></div>`;
+};
+async function exportRimborsi(){
+  const {data:rr}=await sb.from('rimborsi').select('*');
+  const list=S.conv.filter(c=>c.anno_sportivo===S.annoSportivo && ['confermata','svolta'].includes(c.stato));
+  const rows=list.map(c=>{ const r=(rr||[]).find(x=>x.convocazione_id===c.id)||{}; return {Data:c.data_inizio, Gara:c.titolo, Classificazione:c.classificazione, Giudice:c.cognome+' '+c.nome, Ruolo:RUOLI_GARA[c.ruolo], Modalità:MODALITA_RIMB[r.modalita]||'', Km:r.km||0, 'Tariffa €/km':r.tariffa_km||0, Gettone:r.gettone||0, Spese:(r.spese||[]).reduce((s,x)=>s+(+x.importo||0),0), 'Dettaglio spese':(r.spese||[]).map(x=>`${x.descrizione} ${x.importo}`).join('; '), Totale:r.totale||0, Stato:STATI_RIMB[r.stato||'da_compilare'], 'Data liquidazione':r.data_liquidazione||'', Note:r.note||''}; });
+  const perG=Object.entries(groupBy(rows, r=>r.Giudice)).map(([g,rs])=>({Giudice:g, Gare:rs.length, 'Totale km':rs.reduce((s,r)=>s+r.Km,0), 'Totale rimborsi':rs.reduce((s,r)=>s+r.Totale,0), 'Di cui liquidati':rs.filter(r=>r.Stato==='Liquidato').reduce((s,r)=>s+r.Totale,0)}));
+  exportXlsx(`rimborsi_${S.annoSportivo.replace('/','-')}.xlsx`, {Dettaglio:rows, 'Per giudice':perG});
+}
+
+/* ---------- PROFILO (giudice) ---------- */
+VIEWS.profilo = ()=>{
+  if(!S.giudice) return '<div class="alert warn">Account non ancora collegato a un giudice. Contatta il comitato.</div>';
+  const g=S.giudice, s=statoG(g.id), sem=semaforoGiudice(g), p=param();
+  const agg=S.aggiornamenti.filter(a=>a.giudice_id===g.id);
+  return `<h2>${esc(nomeG(g))}</h2>
+  <div class="chip-row mb">${pill(QUALIFICHE[g.qualifica],'orange')} ${g.in_affiancamento?pill(`affiancamento ${s.affiancamenti_svolti||0}/${g.affiancamenti_richiesti}`,'info'):''} ${S.comitato?pill('comitato','navy'):''}</div>
+  <div class="card"><div class="section-title" style="margin-top:0"><h3>Requisiti di mantenimento</h3></div>
+    <p class="small muted">Art. 10 bis: almeno ${p.min_servizi_12m} servizio arbitrale e ${p.min_aggiornamenti_12m} aggiornamento tecnico ogni 12 mesi. Art. 6: perdita per inattività oltre ${p.mesi_inattivita_max} mesi.</p>
+    <div class="kpis"><div class="kpi ${(s.servizi_12m||0)>=p.min_servizi_12m?'ok':'warn'}"><b>${s.servizi_12m||0}</b><span>Servizi 12 mesi</span></div><div class="kpi ${(s.aggiornamenti_12m||0)>=p.min_aggiornamenti_12m?'ok':'warn'}"><b>${s.aggiornamenti_12m||0}</b><span>Aggiornamenti 12 mesi</span></div><div class="kpi ${s.tessera_scaduta?'err':''}"><b>${g.scadenza_tessera?fmtD(g.scadenza_tessera):'—'}</b><span>Scadenza tessera RCT</span></div><div class="kpi ${s.certificato_scaduto?'err':''}"><b>${g.scadenza_certificato?fmtD(g.scadenza_certificato):'—'}</b><span>Scadenza certificato</span></div></div>
+    ${sem.msgs.length?`<div class="alert ${sem.cls==='ok'?'info':sem.cls==='grey'?'warn':sem.cls}">${sem.msgs.map(esc).join('<br>')}</div>`:'<div class="alert ok">Requisiti in regola.</div>'}</div>
+  <div class="card"><div class="section-title" style="margin-top:0"><h3>I miei dati</h3><button class="btn sm" onclick="giudiceForm('${g.id}',true)">Modifica</button></div>
+    <p class="small">${esc(g.email||'')} ${g.telefono?'· '+esc(g.telefono):''}<br>${esc([g.indirizzo,g.cap,g.comune,g.provincia].filter(Boolean).join(', '))}${g.societa?'<br>Società: '+esc(g.societa):''}</p></div>
+  <div class="card"><div class="section-title" style="margin-top:0"><h3>Aggiornamenti tecnici</h3><button class="btn sm" onclick="aggForm('${g.id}')">+ Aggiungi</button></div>
+    ${agg.length?agg.map(a=>`<div class="list-item"><div class="body"><div class="t">${esc(a.descrizione)}</div><div class="s">${fmtD(a.data)}${a.ore?' · '+a.ore+' ore':''}</div></div></div>`).join(''):'<p class="muted small">Nessun aggiornamento registrato.</p>'}</div>
+  <p class="center small muted">GestionaleGDG v${APP_VER}</p>`;
+};
+/* ---------- REPORT (comitato) ---------- */
+VIEWS.report = ()=>{
+  const sez=S.filtri.report||'giudici';
+  const tabs=[['giudici','Attività giudici'],['mantenimento','Mantenimento'],['copertura','Copertura'],['riconcilia','arco.swen'],['referti','Referti']];
+  return `<div class="row between mb"><h2 style="margin:0">Report ${selAnno()}</h2><button class="btn sm" onclick="exportReport()">⬇ Excel completo</button></div>
+    <div class="chip-row mb">${tabs.map(([k,l])=>`<span class="chip ${sez===k?'on':''}" onclick="S.filtri.report='${k}';render()">${l}</span>`).join('')}</div>
+    ${REPORT[sez]()}`;
+};
+const REPORT={};
+function convAnno(){ return S.conv.filter(c=>c.anno_sportivo===S.annoSportivo); }
+REPORT.giudici=()=>{
+  const conv=convAnno(); const classi=[...new Set(conv.map(c=>c.classificazione).filter(Boolean))].sort();
+  const rows=S.giudici.filter(g=>g.attivo||conv.some(c=>c.giudice_id===g.id)).map(g=>{ const mie=conv.filter(c=>c.giudice_id===g.id); const sv=mie.filter(c=>c.stato==='svolta');
+    return {g, svolte:sv.length, coord:sv.filter(c=>c.ruolo==='coordinatore').length, aff:sv.filter(c=>c.ruolo==='affiancamento').length, perCls:Object.fromEntries(classi.map(k=>[k,sv.filter(c=>c.classificazione===k).length])), proposte:mie.length, rifiuti:mie.filter(c=>c.stato==='rifiutata').length, assenze:mie.filter(c=>c.stato==='assente').length, disp:S.disp.filter(d=>d.giudice_id===g.id && d.stato==='disponibile' && gareAnno(S.annoSportivo).some(x=>x.id===d.gara_id)).length, rimb:mie.reduce((s,c)=>s+(+c.rimborso_totale||0),0)}; });
+  const max=Math.max(1,...rows.map(r=>r.svolte));
+  const sorted=sortBy(rows, r=>r.svolte, true);
+  const tot=conv.filter(c=>c.stato==='svolta').length, mai=rows.filter(r=>r.proposte===0).length;
+  return `<div class="kpis"><div class="kpi"><b>${tot}</b><span>Servizi svolti</span></div><div class="kpi"><b>${rows.length?(tot/rows.length).toFixed(1):0}</b><span>Media per giudice</span></div><div class="kpi ${mai?'warn':''}"><b>${mai}</b><span>Giudici mai convocati</span></div><div class="kpi"><b>${conv.filter(c=>c.stato==='rifiutata').length}</b><span>Rifiuti</span></div></div>
+  <div class="card tbl-wrap"><table class="tbl"><thead><tr><th>Giudice</th><th>Qualifica</th><th class="num">Svolte</th><th></th>${classi.map(k=>`<th class="num">${esc(k)}</th>`).join('')}<th class="num">Coord.</th><th class="num">Affianc.</th><th class="num">Disponib.</th><th class="num">Convocaz.</th><th class="num">Rifiuti</th><th class="num">Assenze</th><th class="num">Rimborsi</th></tr></thead><tbody>
+  ${sorted.map(r=>`<tr class="clickable" onclick="openGiudice('${r.g.id}')"><td>${esc(nomeG(r.g))}</td><td>${QUALIFICHE[r.g.qualifica]}</td><td class="num"><b>${r.svolte}</b></td><td style="min-width:90px"><div class="bar"><i style="width:${r.svolte/max*100}%"></i></div></td>${classi.map(k=>`<td class="num">${r.perCls[k]||''}</td>`).join('')}<td class="num">${r.coord||''}</td><td class="num">${r.aff||''}</td><td class="num">${r.disp||''}</td><td class="num">${r.proposte||''}</td><td class="num">${r.rifiuti||''}</td><td class="num">${r.assenze||''}</td><td class="num">${r.rimb?fmtE(r.rimb):''}</td></tr>`).join('')}</tbody></table></div>`;
+};
+REPORT.mantenimento=()=>{
+  const p=param(); const rows=sortBy(S.giudici.filter(g=>g.attivo).map(g=>({g, s:statoG(g.id), sem:semaforoGiudice(g)})), r=>({err:0,warn:1,ok:2,grey:3})[r.sem.cls]);
+  return `<p class="small muted">Verifica dei requisiti del Regolamento GdG: art. 10 bis (≥${p.min_servizi_12m} servizio e ≥${p.min_aggiornamenti_12m} aggiornamento in 12 mesi), art. 6 (inattività ${p.mesi_inattivita_max} mesi), art. 3 (tessera), art. 13 (certificato), art. 20 (età ${p.eta_min}–${p.eta_max}). Il calcolo è sui 12 mesi precedenti a oggi, non sull'anno sportivo.</p>
+  <div class="kpis"><div class="kpi ok"><b>${rows.filter(r=>r.sem.cls==='ok').length}</b><span>In regola</span></div><div class="kpi warn"><b>${rows.filter(r=>r.sem.cls==='warn').length}</b><span>Con avvisi</span></div><div class="kpi err"><b>${rows.filter(r=>r.sem.cls==='err').length}</b><span>Requisiti mancanti</span></div></div>
+  <div class="card tbl-wrap"><table class="tbl"><thead><tr><th></th><th>Giudice</th><th>Qualifica</th><th class="num">Servizi 12m</th><th class="num">Aggiorn. 12m</th><th>Ultimo servizio</th><th>Tessera</th><th>Certificato</th><th class="num">Età</th><th>Note</th></tr></thead><tbody>
+  ${rows.map(r=>`<tr class="clickable" onclick="openGiudice('${r.g.id}')"><td><span class="sem ${r.sem.cls}"></span></td><td>${esc(nomeG(r.g))}</td><td>${QUALIFICHE[r.g.qualifica]}</td><td class="num">${r.s.servizi_12m||0}</td><td class="num">${r.s.aggiornamenti_12m||0}</td><td>${r.s.ultimo_servizio?fmtD(r.s.ultimo_servizio):'—'}</td><td>${r.g.scadenza_tessera?fmtD(r.g.scadenza_tessera):'—'}</td><td>${r.g.scadenza_certificato?fmtD(r.g.scadenza_certificato):'—'}</td><td class="num">${r.s.eta??'—'}</td><td style="white-space:normal;min-width:200px" class="small">${r.sem.msgs.map(esc).join('; ')}</td></tr>`).join('')}</tbody></table></div>`;
+};
+REPORT.copertura=()=>{
+  const gare=sortBy(gareAnno(S.annoSportivo).filter(g=>g.stato!=='annullata'), g=>g.data_inizio);
+  const rows=gare.map(g=>({g, conf:confermatiGara(g), disp:dispDiGara(g.id).filter(d=>d.stato==='disponibile').length, nomi:convDiGara(g.id).filter(c=>['confermata','svolta'].includes(c.stato)).map(c=>nomeG(S.giudici.find(x=>x.id===c.giudice_id))+(c.ruolo!=='giudice'?' ('+RUOLI_GARA[c.ruolo]+')':'')).join(', ')}));
+  const scop=rows.filter(r=>r.conf<r.g.fabbisogno_giudici);
+  const perReg=Object.entries(groupBy(rows, r=>r.g.regione||'—')).map(([k,v])=>({k, n:v.length, sc:v.filter(r=>r.conf<r.g.fabbisogno_giudici).length})).sort((a,b)=>b.n-a.n);
+  return `<div class="kpis"><div class="kpi"><b>${rows.length}</b><span>Gare nell'anno</span></div><div class="kpi ${scop.length?'err':'ok'}"><b>${scop.length}</b><span>Non coperte</span></div><div class="kpi"><b>${rows.reduce((s,r)=>s+r.disp,0)}</b><span>Disponibilità dichiarate</span></div><div class="kpi"><b>${rows.length?Math.round(rows.filter(r=>r.conf>=r.g.fabbisogno_giudici).length/rows.length*100):0}%</b><span>Copertura</span></div></div>
+  <div class="card"><h3>Per regione</h3><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Regione</th><th class="num">Gare</th><th class="num">Scoperte</th></tr></thead><tbody>${perReg.map(r=>`<tr><td>${esc(r.k)}</td><td class="num">${r.n}</td><td class="num">${r.sc||''}</td></tr>`).join('')}</tbody></table></div></div>
+  <div class="card tbl-wrap"><table class="tbl"><thead><tr><th>Data</th><th>Gara</th><th>Class.</th><th>Regione</th><th class="num">Richiesti</th><th class="num">Confermati</th><th class="num">Disponib.</th><th>Giudici</th></tr></thead><tbody>
+  ${rows.map(r=>`<tr class="clickable ${r.conf<r.g.fabbisogno_giudici?'':''}" onclick="openGara('${r.g.id}')"><td>${fmtD(r.g.data_inizio)}</td><td>${esc(r.g.titolo)}</td><td>${esc(r.g.classificazione||'')}</td><td>${esc(r.g.regione||'')}</td><td class="num">${r.g.fabbisogno_giudici}</td><td class="num">${r.conf<r.g.fabbisogno_giudici?`<span style="color:var(--err);font-weight:700">${r.conf}</span>`:r.conf}</td><td class="num">${r.disp}</td><td style="white-space:normal">${esc(r.nomi)}</td></tr>`).join('')}</tbody></table></div>`;
+};
+// Riconciliazione con il campo "Giudice" di arco.swen
+function matchGiudiceSwen(nome){ if(!nome) return null; const n=nome.trim().toLowerCase().replace(/\s+/g,' '); return S.giudici.find(g=>{ const a=(g.cognome+' '+g.nome).toLowerCase(), b=(g.nome+' '+g.cognome).toLowerCase(); return a===n||b===n; })||null; }
+REPORT.riconcilia=()=>{
+  const gare=sortBy(gareAnno(S.annoSportivo).filter(g=>g.origine==='swen'), g=>g.data_inizio);
+  const rows=gare.map(g=>{ const m=matchGiudiceSwen(g.giudice_swen); const conf=convDiGara(g.id).filter(c=>['confermata','svolta'].includes(c.stato)); const inConv=m&&conf.some(c=>c.giudice_id===m.id);
+    let stato, cls; if(!g.giudice_swen) { stato='Nessun giudice su arco.swen'; cls='grey'; } else if(!m){ stato='Giudice non riconosciuto'; cls='warn'; } else if(inConv){ stato='Coerente'; cls='ok'; } else if(conf.length){ stato='Diverso dalla convocazione'; cls='err'; } else { stato='Manca la convocazione'; cls='warn'; }
+    return {g,m,conf,stato,cls}; });
+  const importabili=rows.filter(r=>r.m && !r.conf.length && r.g.data_inizio<today());
+  return `<p class="small muted">Confronto tra il giudice registrato dall'organizzatore su arco.swen e le convocazioni confermate qui. Le gare passate con giudice riconosciuto e senza convocazione si possono importare come "svolte" per ricostruire lo storico.</p>
+  <div class="kpis"><div class="kpi ok"><b>${rows.filter(r=>r.cls==='ok').length}</b><span>Coerenti</span></div><div class="kpi err"><b>${rows.filter(r=>r.cls==='err').length}</b><span>Discordanti</span></div><div class="kpi warn"><b>${rows.filter(r=>r.cls==='warn').length}</b><span>Da verificare</span></div><div class="kpi"><b>${importabili.length}</b><span>Importabili nello storico</span></div></div>
+  ${importabili.length?`<button class="btn primary mb" onclick="importaStorico()">Importa ${importabili.length} gare passate come svolte</button>`:''}
+  <div class="card tbl-wrap"><table class="tbl"><thead><tr><th>Data</th><th>Gara</th><th>Giudice su arco.swen</th><th>Convocati qui</th><th>Esito</th></tr></thead><tbody>
+  ${rows.map(r=>`<tr class="clickable" onclick="openGara('${r.g.id}')"><td>${fmtD(r.g.data_inizio)}</td><td>${esc(r.g.titolo)}</td><td>${esc(r.g.giudice_swen||'—')}</td><td>${esc(r.conf.map(c=>nomeG(S.giudici.find(x=>x.id===c.giudice_id))).join(', '))||'—'}</td><td>${pill(r.stato,r.cls)}</td></tr>`).join('')}</tbody></table></div>`;
+};
+async function importaStorico(){
+  const gare=gareAnno(S.annoSportivo).filter(g=>g.origine==='swen' && g.data_inizio<today());
+  const recs=[]; for(const g of gare){ const m=matchGiudiceSwen(g.giudice_swen); if(!m) continue; if(convDiGara(g.id).some(c=>['confermata','svolta'].includes(c.stato))) continue; recs.push({g,m}); }
+  confirmDlg('Importa storico', `Verranno create ${recs.length} convocazioni in stato "svolta" (ruolo Giudice) dal campo Giudice di arco.swen. Le regole di qualifica vengono applicate: le gare nazionali dirette da un Regionale vengono importate con deroga.`, async()=>{
+    let ok=0, ko=[];
+    for(const {g,m} of recs){
+      const ins=await sb.from('convocazioni').insert({gara_id:g.id, giudice_id:m.id, ruolo:m.in_affiancamento?'affiancamento':'giudice', deroga:(m.qualifica==='regionale'&&isNaz(g.classificazione)), note:'Importata da arco.swen', created_by:S.user.id}).select().single();
+      if(ins.error){ ko.push(g.titolo+': '+ins.error.message); continue; }
+      const up=await sb.from('convocazioni').update({stato:'svolta'}).eq('id',ins.data.id); if(up.error){ ko.push(g.titolo+': '+up.error.message); continue; }
+      ok++;
+    }
+    toast(`Importate ${ok} convocazioni${ko.length?', '+ko.length+' errori':''}`, ko.length?'err':'ok'); if(ko.length) console.warn(ko);
+    if(gare.some(g=>g.stato==='programmata')) await sb.from('gare').update({stato:'svolta'}).in('id', gare.map(g=>g.id)).eq('stato','programmata');
+    await reload();
+  });
+}
+REPORT.referti=()=>{
+  const rows=sortBy(convAnno().filter(c=>['confermata','svolta'].includes(c.stato) && c.data_inizio<today()), c=>c.data_inizio, true);
+  return `<div class="kpis"><div class="kpi"><b>${rows.length}</b><span>Gare svolte</span></div><div class="kpi ok"><b>${rows.filter(c=>c.referto_caricato).length}</b><span>Con referto caricato</span></div><div class="kpi warn"><b>${rows.filter(c=>!c.referto_caricato).length}</b><span>Senza referto</span></div></div>
+  <p class="small muted">Il referto ufficiale viene inviato tramite l'applicazione federale; qui risulta solo la copia eventualmente caricata (art. 14).</p>
+  <div class="card tbl-wrap"><table class="tbl"><thead><tr><th>Data</th><th>Gara</th><th>Giudice</th><th>Referto</th><th></th></tr></thead><tbody>
+  ${rows.map(c=>`<tr><td>${fmtD(c.data_inizio)}</td><td>${esc(c.titolo)}</td><td>${esc(c.cognome+' '+c.nome)}</td><td>${c.referto_caricato?pill('caricato','ok'):pill('mancante','warn')}</td><td><button class="btn sm" onclick="refertoDlg('${c.id}')">Apri</button></td></tr>`).join('')}</tbody></table></div>`;
+};
+function exportReport(){
+  const conv=convAnno(); const a=S.annoSportivo.replace('/','-');
+  const attivita=S.giudici.map(g=>{ const sv=conv.filter(c=>c.giudice_id===g.id && c.stato==='svolta'); const s=statoG(g.id); const sem=semaforoGiudice(g); return {Giudice:nomeG(g), Qualifica:QUALIFICHE[g.qualifica], Attivo:g.attivo?'sì':'no', 'Gare svolte':sv.length, 'Di cui nazionali':sv.filter(c=>isNaz(c.classificazione)).length, 'Di cui regionali':sv.filter(c=>!isNaz(c.classificazione)).length, Coordinatore:sv.filter(c=>c.ruolo==='coordinatore').length, Affiancamento:sv.filter(c=>c.ruolo==='affiancamento').length, Convocazioni:conv.filter(c=>c.giudice_id===g.id).length, Rifiuti:conv.filter(c=>c.giudice_id===g.id&&c.stato==='rifiutata').length, Assenze:conv.filter(c=>c.giudice_id===g.id&&c.stato==='assente').length, 'Servizi ultimi 12 mesi':s.servizi_12m||0, 'Aggiornamenti ultimi 12 mesi':s.aggiornamenti_12m||0, 'Ultimo servizio':s.ultimo_servizio||'', 'Scadenza tessera':g.scadenza_tessera||'', 'Scadenza certificato':g.scadenza_certificato||'', Requisiti:sem.cls==='ok'?'in regola':sem.msgs.join('; '), 'Rimborsi totali':conv.filter(c=>c.giudice_id===g.id).reduce((s,c)=>s+(+c.rimborso_totale||0),0)}; });
+  const dettaglio=sortBy(conv, c=>c.data_inizio).map(c=>({Data:c.data_inizio, Gara:c.titolo, Tipo:c.tipo_descrizione, Classificazione:c.classificazione, Regione:c.gara_regione, Organizzatore:c.societa_organizzatrice, Giudice:c.cognome+' '+c.nome, Ruolo:RUOLI_GARA[c.ruolo], Stato:STATI_CONV[c.stato], Deroga:c.deroga?'sì':'', 'Motivo rifiuto':c.motivo_rifiuto||'', 'Giudice su arco.swen':c.giudice_swen||'', Rimborso:c.rimborso_totale||0, 'Stato rimborso':STATI_RIMB[c.rimborso_stato]||'', Referto:c.referto_caricato?'sì':'no'}));
+  const copertura=sortBy(gareAnno(S.annoSportivo), g=>g.data_inizio).map(g=>({Data:g.data_inizio, Gara:g.titolo, Classificazione:g.classificazione, Regione:g.regione, Stato:g.stato, Richiesti:g.fabbisogno_giudici, Confermati:confermatiGara(g), Disponibilità:dispDiGara(g.id).filter(d=>d.stato==='disponibile').length, Giudici:convDiGara(g.id).filter(c=>['confermata','svolta'].includes(c.stato)).map(c=>nomeG(S.giudici.find(x=>x.id===c.giudice_id))).join(', ')}));
+  exportXlsx(`report_GDG_${a}.xlsx`, {'Attività giudici':attivita, 'Dettaglio convocazioni':dettaglio, 'Copertura gare':copertura});
+}
+
+/* ---------- IMPOSTAZIONI (comitato) ---------- */
+VIEWS.impostazioni = ()=>{
+  const p=S.parametri.find(x=>x.anno_sportivo===S.annoSportivo);
+  return `<h2>Impostazioni</h2>
+  <div class="card"><div class="section-title" style="margin-top:0"><h3>Parametri anno sportivo ${selAnno()}</h3><button class="btn sm primary" onclick="parametriForm()">${p?'Modifica':'Crea'}</button></div>
+    ${p?`<p class="small">Tariffa <b>${fmtE(p.tariffa_km)}/km</b> · Gettone regionale <b>${fmtE(p.gettone_regionale)}</b> · nazionale <b>${fmtE(p.gettone_nazionale)}</b> · coordinatore <b>${fmtE(p.gettone_coordinatore)}</b> · Modalità predefinita: <b>${MODALITA_RIMB[p.modalita_default]}</b><br>Minimi 12 mesi: <b>${p.min_servizi_12m}</b> servizi, <b>${p.min_aggiornamenti_12m}</b> aggiornamenti · Inattività max <b>${p.mesi_inattivita_max}</b> mesi · Età <b>${p.eta_min}–${p.eta_max}</b>${p.note?'<br><i>'+esc(p.note)+'</i>':''}</p>`:'<p class="muted small">Nessun parametro per questo anno: vengono usati quelli dell\'anno più recente disponibile.</p>'}</div>
+  <div class="card"><div class="section-title" style="margin-top:0"><h3>Sincronizzazione</h3></div>
+    <p class="small">Il calendario gare arriva da <b>arco.swen</b> (endpoint pubblico) e l'elenco giudici dall'<b>Albo Nazionale CSAIN</b> (Tiro con l'arco · 3D · Ufficiali di Gara). La sincronizzazione gira su una funzione Supabase; i dati inseriti dal comitato non vengono sovrascritti.</p>
+    <div class="row"><button class="btn" onclick="syncDlg('swen')">↻ Calendario gare</button><button class="btn" onclick="syncDlg('albo')">↻ Albo giudici</button><button class="btn sm" onclick="syncLog()">Registro</button></div></div>
+  <div class="card"><div class="section-title" style="margin-top:0"><h3>Account e ruoli</h3></div>
+    <p class="small muted">Ogni account registrato va collegato a un giudice. Il ruolo "Comitato" dà accesso completo.</p>
+    ${S.profili.map(pr=>{ const g=S.giudici.find(x=>x.id===pr.giudice_id); return `<div class="list-item"><div class="body"><div class="t">${esc(pr.email||'')} ${pr.ruolo==='comitato'?pill('comitato','navy'):pill('giudice')}</div><div class="s">${g?'→ '+esc(nomeG(g)):'<span style="color:var(--warn)">non collegato a un giudice</span>'}</div></div><button class="btn sm" onclick="profiloForm('${pr.id}')">Modifica</button></div>`; }).join('')}</div>
+  <div class="card"><h3>Guida</h3><button class="btn" onclick="openGuide()">Apri la guida</button> <span class="small muted">GestionaleGDG v${APP_VER}</span></div>`;
+};
+function parametriForm(){
+  const p=S.parametri.find(x=>x.anno_sportivo===S.annoSportivo)||{...param(), anno_sportivo:S.annoSportivo, note:''};
+  const html=`<p class="small muted">Anno sportivo <b>${S.annoSportivo}</b> · art. 16: misura stabilita annualmente dalla Commissione.</p>
+    <div class="grid2"><div><label class="f">Tariffa €/km</label><input class="f" type="number" step="0.001" id="pf-km" value="${p.tariffa_km}"></div><div><label class="f">Modalità rimborso predefinita</label><select class="f" id="pf-mod">${Object.entries(MODALITA_RIMB).map(([k,v])=>`<option value="${k}" ${p.modalita_default===k?'selected':''}>${v}</option>`).join('')}</select></div></div>
+    <div class="grid3"><div><label class="f">Gettone gara regionale</label><input class="f" type="number" step="0.01" id="pf-gr" value="${p.gettone_regionale}"></div><div><label class="f">Gettone gara nazionale</label><input class="f" type="number" step="0.01" id="pf-gn" value="${p.gettone_nazionale}"></div><div><label class="f">Gettone coordinatore</label><input class="f" type="number" step="0.01" id="pf-gc" value="${p.gettone_coordinatore}"></div></div>
+    <div class="grid3"><div><label class="f">Min. servizi / 12 mesi</label><input class="f" type="number" id="pf-ms" value="${p.min_servizi_12m}"></div><div><label class="f">Min. aggiornamenti / 12 mesi</label><input class="f" type="number" id="pf-ma" value="${p.min_aggiornamenti_12m}"></div><div><label class="f">Mesi inattività max</label><input class="f" type="number" id="pf-mi" value="${p.mesi_inattivita_max}"></div></div>
+    <div class="grid2"><div><label class="f">Età minima</label><input class="f" type="number" id="pf-e1" value="${p.eta_min}"></div><div><label class="f">Età massima</label><input class="f" type="number" id="pf-e2" value="${p.eta_max}"></div></div>
+    <label class="f">Note</label><input class="f" id="pf-note" value="${esc(p.note||'')}">`;
+  openModal('Parametri', html, [{t:'Annulla',fn:(m)=>closeModal(m)},{t:'Salva',cls:'primary',fn:async(m)=>{
+    const rec={anno_sportivo:S.annoSportivo, tariffa_km:+$('pf-km').value||0, modalita_default:$('pf-mod').value, gettone_regionale:+$('pf-gr').value||0, gettone_nazionale:+$('pf-gn').value||0, gettone_coordinatore:+$('pf-gc').value||0, min_servizi_12m:+$('pf-ms').value||1, min_aggiornamenti_12m:+$('pf-ma').value||1, mesi_inattivita_max:+$('pf-mi').value||24, eta_min:+$('pf-e1').value||18, eta_max:+$('pf-e2').value||75, note:$('pf-note').value||null};
+    const {error}=await sb.from('parametri').upsert(rec); if(error) return err(error); closeModal(m); toast('Parametri salvati','ok'); await reload();
+  }}]);
+}
+function profiloForm(pid){
+  const pr=S.profili.find(x=>x.id===pid);
+  const html=`<p><b>${esc(pr.email||'')}</b></p>
+    <label class="f">Ruolo</label><select class="f" id="pr-ruolo"><option value="giudice" ${pr.ruolo==='giudice'?'selected':''}>Giudice</option><option value="comitato" ${pr.ruolo==='comitato'?'selected':''}>Comitato</option></select>
+    <label class="f">Giudice collegato</label><select class="f" id="pr-g"><option value="">— nessuno —</option>${sortBy(S.giudici,g=>g.cognome).map(g=>`<option value="${g.id}" ${pr.giudice_id===g.id?'selected':''}>${esc(nomeG(g))}</option>`).join('')}</select>`;
+  openModal('Account', html, [{t:'Annulla',fn:(m)=>closeModal(m)},{t:'Salva',cls:'primary',fn:async(m)=>{
+    if(pid===S.user.id && $('pr-ruolo').value!=='comitato') return toast('Non puoi togliere il ruolo comitato a te stesso','err');
+    const {error}=await sb.from('profili').update({ruolo:$('pr-ruolo').value, giudice_id:$('pr-g').value||null}).eq('id',pid); if(error) return err(error); closeModal(m); toast('Account aggiornato','ok'); await reload();
+  }}]);
+}
+
+/* ---------- SINCRONIZZAZIONE ---------- */
+function syncDlg(tipo){
+  const html=`<p class="small">${tipo==='albo'?'Legge l\'Albo Nazionale CSAIN (Tiro con l\'arco · 3D · Ufficiali di Gara): aggiunge i giudici nuovi, aggiorna nome e provincia, segnala chi non risulta più iscritto.':tipo==='swen'?'Legge il calendario pubblico di arco.swen: aggiunge le gare nuove e aggiorna titolo, date, luogo, tipo e giudice registrato. Percorsi, fabbisogno, stato e note del comitato non vengono toccati.':'Scegli cosa sincronizzare.'}</p>
+    ${!tipo?'<div class="row"><button class="btn" onclick="closeModal();syncDlg(\'swen\')">Calendario gare</button><button class="btn" onclick="closeModal();syncDlg(\'albo\')">Albo giudici</button></div>':''}
+    <div id="sync-out" class="mt"></div>`;
+  const actions=[{t:'Chiudi',fn:(m)=>closeModal(m)}];
+  if(tipo) actions.push({t:'Avvia',cls:'primary',fn:async(m)=>{ $('sync-out').innerHTML='<span class="spinner"></span> Sincronizzazione in corso…'; const res=await runSync(tipo); $('sync-out').innerHTML=res; await reload(); }});
+  openModal('Sincronizzazione', html, actions);
+}
+async function runSync(tipo){
+  try{
+    const {data,error}=await sb.functions.invoke('sync',{body:{tipo}});
+    if(error) throw error;
+    if(data&&data.error) throw new Error(data.error);
+    return `<div class="alert ok">${esc(data.messaggio||'Completata')}<br><span class="small">Inseriti ${data.inseriti||0} · aggiornati ${data.aggiornati||0}${data.segnalati?' · segnalati '+data.segnalati:''}</span></div>${(data.note||[]).length?'<ul class="small">'+data.note.map(n=>'<li>'+esc(n)+'</li>').join('')+'</ul>':''}`;
+  }catch(e){ return `<div class="alert err">Errore: ${esc(e.message||e)}<br><span class="small">Verifica che la funzione "sync" sia pubblicata su Supabase (vedi README).</span></div>`; }
+}
+async function syncLog(){
+  const {data}=await sb.from('sync_log').select('*').order('created_at',{ascending:false}).limit(30);
+  openModal('Registro sincronizzazioni', (data||[]).length?data.map(l=>`<div class="list-item"><div class="body"><div class="t">${l.tipo==='swen'?'Calendario gare':'Albo giudici'} ${pill(l.esito, l.esito==='ok'?'ok':'err')}</div><div class="s">${new Date(l.created_at).toLocaleString('it-IT')} · inseriti ${l.inseriti} · aggiornati ${l.aggiornati} · segnalati ${l.segnalati}${l.dettagli&&l.dettagli.note?'<br>'+l.dettagli.note.slice(0,5).map(esc).join('<br>'):''}</div></div></div>`).join(''):'<p class="muted">Nessuna sincronizzazione eseguita.</p>', [{t:'Chiudi',fn:(m)=>closeModal(m)}]);
+}
+
+/* ---------- GUIDA ---------- */
+const GUIDE = [
+  {t:'Ruoli', c:'<b>Comitato</b>: gestisce giudici, gare, convocazioni, rimborsi, parametri e report. <b>Giudice</b>: dichiara le disponibilità, risponde alle convocazioni, compila i rimborsi, carica i referti e aggiorna i propri dati di contatto. Un membro del comitato ha entrambe le viste: quella del comitato nelle schede principali, la propria dal profilo giudice collegato.'},
+  {t:'Flusso di una convocazione', c:'1) La gara compare nel calendario (sincronizzata da arco.swen o inserita a mano). 2) I giudici dichiarano <i>Disponibile</i> / <i>Non disponibile</i> nella scheda Gare. 3) Il comitato apre la gara e assegna un giudice: vede prima i disponibili, poi chi non ha risposto, poi i non disponibili, con gli avvisi del caso. 4) Il giudice riceve la <b>proposta</b> e la accetta o la rifiuta (il rifiuto richiede il motivo, art. 11.2). 5) Il comitato <b>conferma</b>. 6) Dopo la gara il comitato la chiude segnando <b>svolta</b> o <b>assente</b>: solo le convocazioni "svolte" contano nel report. 7) Il giudice compila il rimborso e, se vuole, carica il referto; il comitato approva e liquida.'},
+  {t:'Regole applicate', c:'<b>Qualifiche</b> (art. 7): Regionale, Nazionale, Emerito. Il Regionale è designabile per gare provinciali/regionali/interregionali; su una gara nazionale l\'app chiede la <b>deroga</b> esplicita del comitato. Il ruolo <b>Coordinatore</b> è riservato ai Nazionali nelle gare nazionali/internazionali (art. 7 ter). <b>Affiancamento</b> (art. 2): chi ha appena concluso il corso va segnato "in affiancamento"; la sua convocazione ha sempre ruolo Affiancamento e non può essere confermata se sarebbe l\'unico giudice. <b>Fabbisogno</b>: con 2 percorsi in contemporanea servono 2 giudici (Reg. Sportivo par. VI). <b>Incompatibilità</b> (art. 4): avviso se il giudice appartiene alla società organizzatrice. Doppia convocazione nello stesso giorno: bloccata.'},
+  {t:'Requisiti di mantenimento', c:'Art. 10 bis: almeno un servizio arbitrale e un aggiornamento tecnico ogni 12 mesi. Art. 6: perdita per inattività oltre 24 mesi, tessera RCT non rinnovata, mancati aggiornamenti. Art. 13: certificato medico non agonistico valido. Art. 20: età 18–75. Il semaforo accanto a ogni giudice (verde/giallo/rosso) riassume questi controlli; i minimi si regolano nei Parametri. Gli aggiornamenti tecnici vanno registrati nel profilo del giudice.'},
+  {t:'Rimborsi', c:'Art. 16: servizio volontario, rimborso spese nella misura stabilita annualmente. Tre modalità per convocazione: <b>Km × tariffa + spese</b>, <b>Gettone + km</b> (gettone per regionale/nazionale/coordinatore) e <b>Importo manuale</b> (solo comitato). La tariffa e i gettoni vengono dai Parametri dell\'anno sportivo; il giudice inserisce km e spese, il comitato approva e liquida. Export Excel con dettaglio e totali per giudice.'},
+  {t:'Sincronizzazioni', c:'<b>Calendario gare</b>: dal calendario pubblico di arco.swen. Vengono importate le sole gare (non i corsi); le modifiche del comitato su percorsi, fabbisogno, stato e note vengono conservate. Il campo "Giudice registrato su arco.swen" serve al report di riconciliazione e all\'importazione dello storico. <b>Albo giudici</b>: dall\'Albo Nazionale CSAIN (Tiro con l\'arco, 3D, Ufficiali di Gara). L\'albo fornisce solo nome, cognome, provincia e sesso: qualifica, contatti e scadenze si gestiscono qui. Chi non risulta più nell\'albo viene segnalato ma non cancellato.'},
+  {t:'Report di fine anno', c:'<b>Attività giudici</b>: gare svolte per giudice e per classificazione, coordinamenti, affiancamenti, disponibilità date, rifiuti, assenze, rimborsi. <b>Mantenimento</b>: semaforo requisiti per ogni giudice attivo. <b>Copertura</b>: gare scoperte e distribuzione per regione. <b>arco.swen</b>: coerenza tra convocazioni e giudice registrato sul portale, con importazione dello storico. <b>Referti</b>: gare con o senza copia del referto. Tutto esportabile in Excel.'},
+  {t:'Anno sportivo', c:'L\'anno sportivo va dal 1° settembre al 31 agosto (es. 2026/2027), come nel calendario arco.swen. I report e i rimborsi sono per anno sportivo; i requisiti di mantenimento sono calcolati sui 12 mesi precedenti a oggi, come richiede il regolamento.'},
+  {t:'Novità', c:'<b>1.0.0</b> — Prima versione: login, giudici, gare, disponibilità, convocazioni con regole del Regolamento GdG rev 1.0, rimborsi a tre modalità, referti, report annuale, sincronizzazione arco.swen e Albo Nazionale.'}
+];
+function openGuide(){ openModal('Guida', GUIDE.map(g=>`<details class="guide"><summary>${g.t}</summary><div class="small">${g.c}</div></details>`).join(''), [{t:'Chiudi',cls:'navy',fn:(m)=>closeModal(m)}]); }
+
+init();
+</script>
+</body>
+</html>

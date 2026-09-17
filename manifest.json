@@ -1,0 +1,16 @@
+{
+  "name": "GestionaleGDG - Comitato Giudici di Gara CSAIn",
+  "short_name": "GestionaleGDG",
+  "description": "Convocazioni, disponibilità, rimborsi e verifica annuale dei Giudici di Gara CSAIn - Tiro con l'arco 3D",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#1b2a49",
+  "theme_color": "#1b2a49",
+  "lang": "it",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}
