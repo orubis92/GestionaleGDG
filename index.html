@@ -148,6 +148,7 @@ table.tbl td.num,table.tbl th.num{text-align:right}
 .avail-btns button.on-no{background:#fde2e0;border-color:#f0a09a;color:#991b1b;font-weight:700}
 details.guide{margin-bottom:.5rem}
 details.guide summary{cursor:pointer;font-weight:600;padding:.4rem 0}
+.guide-body{padding:.2rem 0 .6rem .2rem;line-height:1.55}.guide-body p{margin:.3rem 0 .5rem}.guide-body ul,.guide-body ol{margin:.2rem 0 .6rem;padding-left:1.3rem}.guide-body li{margin:.2rem 0}
 .spinner{display:inline-block;width:18px;height:18px;border:3px solid #ddd;border-top-color:var(--orange);border-radius:50%;animation:spin .8s linear infinite;vertical-align:middle}
 @keyframes spin{to{transform:rotate(360deg)}}
 .section-title{display:flex;justify-content:space-between;align-items:center;margin:.9rem 0 .5rem}
@@ -229,7 +230,7 @@ const CONFIG = {
   SUPABASE_URL: 'https://vscxesrpxmmyssrdegpm.supabase.co',
   SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZzY3hlc3JweG1teXNzcmRlZ3BtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk2MTk3MzYsImV4cCI6MjEwNTE5NTczNn0.cm98J7vJzY4qbxlsZ_9XpxYHTSvo7bMh4Sp7d1b_BeI'
 };
-const APP_VER = '1.0.0';
+const APP_VER = '1.1.0';
 /* ===================== COSTANTI DI DOMINIO ===================== */
 const QUALIFICHE = { regionale:'Giudice Regionale', nazionale:'Giudice Nazionale', emerito:'Giudice Emerito' };
 const RUOLI_GARA = { giudice:'Giudice', coordinatore:'Coordinatore', affiancamento:'Affiancamento' };
@@ -313,7 +314,7 @@ async function doLogin(){
 async function doRegister(){
   const email=$('rg-email').value.trim(), password=$('rg-pass').value;
   if(!email||password.length<8) return loginMsg('Email valida e password di almeno 8 caratteri','warn');
-  const { data, error } = await sb.auth.signUp({ email, password });
+  const { data, error } = await sb.auth.signUp({ email, password, options: { emailRedirectTo: location.href.split('#')[0].split('?')[0] } });
   if(error) return loginMsg(error.message,'err');
   if(data.session){ await afterLogin(data.user); } else loginMsg('Account creato. Controlla la posta per confermare l\'email, poi accedi.','ok');
 }
@@ -910,7 +911,7 @@ VIEWS.impostazioni = ()=>{
   <div class="card"><div class="section-title" style="margin-top:0"><h3>Account e ruoli</h3></div>
     <p class="small muted">Ogni account registrato va collegato a un giudice. Il ruolo "Comitato" dà accesso completo.</p>
     ${S.profili.map(pr=>{ const g=S.giudici.find(x=>x.id===pr.giudice_id); return `<div class="list-item"><div class="body"><div class="t">${esc(pr.email||'')} ${pr.ruolo==='comitato'?pill('comitato','navy'):pill('giudice')}</div><div class="s">${g?'→ '+esc(nomeG(g)):'<span style="color:var(--warn)">non collegato a un giudice</span>'}</div></div><button class="btn sm" onclick="profiloForm('${pr.id}')">Modifica</button></div>`; }).join('')}</div>
-  <div class="card"><h3>Guida</h3><button class="btn" onclick="openGuide()">Apri la guida</button> <span class="small muted">GestionaleGDG v${APP_VER}</span></div>`;
+  <div class="card"><h3>Guida e versione</h3><p class="small muted">La guida in linea (pulsante ? in alto) descrive ogni funzione e riporta le novità di ogni versione.</p><button class="btn" onclick="openGuide()">Apri la guida</button> <span class="small muted">GestionaleGDG v${APP_VER}</span></div>`;
 };
 function parametriForm(){
   const p=S.parametri.find(x=>x.anno_sportivo===S.annoSportivo)||{...param(), anno_sportivo:S.annoSportivo, note:''};
@@ -958,19 +959,170 @@ async function syncLog(){
   openModal('Registro sincronizzazioni', (data||[]).length?data.map(l=>`<div class="list-item"><div class="body"><div class="t">${l.tipo==='swen'?'Calendario gare':'Albo giudici'} ${pill(l.esito, l.esito==='ok'?'ok':'err')}</div><div class="s">${new Date(l.created_at).toLocaleString('it-IT')} · inseriti ${l.inseriti} · aggiornati ${l.aggiornati} · segnalati ${l.segnalati}${l.dettagli&&l.dettagli.note?'<br>'+l.dettagli.note.slice(0,5).map(esc).join('<br>'):''}</div></div></div>`).join(''):'<p class="muted">Nessuna sincronizzazione eseguita.</p>', [{t:'Chiudi',fn:(m)=>closeModal(m)}]);
 }
 
-/* ---------- GUIDA ---------- */
-const GUIDE = [
-  {t:'Ruoli', c:'<b>Comitato</b>: gestisce giudici, gare, convocazioni, rimborsi, parametri e report. <b>Giudice</b>: dichiara le disponibilità, risponde alle convocazioni, compila i rimborsi, carica i referti e aggiorna i propri dati di contatto. Un membro del comitato ha entrambe le viste: quella del comitato nelle schede principali, la propria dal profilo giudice collegato.'},
-  {t:'Flusso di una convocazione', c:'1) La gara compare nel calendario (sincronizzata da arco.swen o inserita a mano). 2) I giudici dichiarano <i>Disponibile</i> / <i>Non disponibile</i> nella scheda Gare. 3) Il comitato apre la gara e assegna un giudice: vede prima i disponibili, poi chi non ha risposto, poi i non disponibili, con gli avvisi del caso. 4) Il giudice riceve la <b>proposta</b> e la accetta o la rifiuta (il rifiuto richiede il motivo, art. 11.2). 5) Il comitato <b>conferma</b>. 6) Dopo la gara il comitato la chiude segnando <b>svolta</b> o <b>assente</b>: solo le convocazioni "svolte" contano nel report. 7) Il giudice compila il rimborso e, se vuole, carica il referto; il comitato approva e liquida.'},
-  {t:'Regole applicate', c:'<b>Qualifiche</b> (art. 7): Regionale, Nazionale, Emerito. Il Regionale è designabile per gare provinciali/regionali/interregionali; su una gara nazionale l\'app chiede la <b>deroga</b> esplicita del comitato. Il ruolo <b>Coordinatore</b> è riservato ai Nazionali nelle gare nazionali/internazionali (art. 7 ter). <b>Affiancamento</b> (art. 2): chi ha appena concluso il corso va segnato "in affiancamento"; la sua convocazione ha sempre ruolo Affiancamento e non può essere confermata se sarebbe l\'unico giudice. <b>Fabbisogno</b>: con 2 percorsi in contemporanea servono 2 giudici (Reg. Sportivo par. VI). <b>Incompatibilità</b> (art. 4): avviso se il giudice appartiene alla società organizzatrice. Doppia convocazione nello stesso giorno: bloccata.'},
-  {t:'Requisiti di mantenimento', c:'Art. 10 bis: almeno un servizio arbitrale e un aggiornamento tecnico ogni 12 mesi. Art. 6: perdita per inattività oltre 24 mesi, tessera RCT non rinnovata, mancati aggiornamenti. Art. 13: certificato medico non agonistico valido. Art. 20: età 18–75. Il semaforo accanto a ogni giudice (verde/giallo/rosso) riassume questi controlli; i minimi si regolano nei Parametri. Gli aggiornamenti tecnici vanno registrati nel profilo del giudice.'},
-  {t:'Rimborsi', c:'Art. 16: servizio volontario, rimborso spese nella misura stabilita annualmente. Tre modalità per convocazione: <b>Km × tariffa + spese</b>, <b>Gettone + km</b> (gettone per regionale/nazionale/coordinatore) e <b>Importo manuale</b> (solo comitato). La tariffa e i gettoni vengono dai Parametri dell\'anno sportivo; il giudice inserisce km e spese, il comitato approva e liquida. Export Excel con dettaglio e totali per giudice.'},
-  {t:'Sincronizzazioni', c:'<b>Calendario gare</b>: dal calendario pubblico di arco.swen. Vengono importate le sole gare (non i corsi); le modifiche del comitato su percorsi, fabbisogno, stato e note vengono conservate. Il campo "Giudice registrato su arco.swen" serve al report di riconciliazione e all\'importazione dello storico. <b>Albo giudici</b>: dall\'Albo Nazionale CSAIN (Tiro con l\'arco, 3D, Ufficiali di Gara). L\'albo fornisce solo nome, cognome, provincia e sesso: qualifica, contatti e scadenze si gestiscono qui. Chi non risulta più nell\'albo viene segnalato ma non cancellato.'},
-  {t:'Report di fine anno', c:'<b>Attività giudici</b>: gare svolte per giudice e per classificazione, coordinamenti, affiancamenti, disponibilità date, rifiuti, assenze, rimborsi. <b>Mantenimento</b>: semaforo requisiti per ogni giudice attivo. <b>Copertura</b>: gare scoperte e distribuzione per regione. <b>arco.swen</b>: coerenza tra convocazioni e giudice registrato sul portale, con importazione dello storico. <b>Referti</b>: gare con o senza copia del referto. Tutto esportabile in Excel.'},
-  {t:'Anno sportivo', c:'L\'anno sportivo va dal 1° settembre al 31 agosto (es. 2026/2027), come nel calendario arco.swen. I report e i rimborsi sono per anno sportivo; i requisiti di mantenimento sono calcolati sui 12 mesi precedenti a oggi, come richiede il regolamento.'},
-  {t:'Novità', c:'<b>1.0.0</b> — Prima versione: login, giudici, gare, disponibilità, convocazioni con regole del Regolamento GdG rev 1.0, rimborsi a tre modalità, referti, report annuale, sincronizzazione arco.swen e Albo Nazionale.'}
+/* ---------- GUIDA IN LINEA ----------
+   REGOLA DI MANUTENZIONE: ogni nuova funzionalità o modifica di comportamento aggiorna
+   (1) la sezione GUIDE interessata, (2) CHANGELOG con la versione, (3) APP_VER e CACHE in sw.js.
+   r: 'tutti' | 'comitato' | 'giudice'  — per chi è rilevante la sezione. */
+const CHANGELOG = [
+  {v:'1.1.0', d:'2026-09-17', items:['Guida in linea completa: pagina dedicata con ricerca, sezioni per ruolo, istruzioni passo passo, domande frequenti e registro versioni.','La registrazione indica esplicitamente l\'indirizzo dell\'app come destinazione del link di conferma email.']},
+  {v:'1.0.0', d:'2026-09-17', items:['Prima versione: login, giudici, gare, disponibilità, convocazioni con le regole del Regolamento GdG rev 1.0, rimborsi a tre modalità, referti, report annuale, sincronizzazione arco.swen e Albo Nazionale.']}
 ];
-function openGuide(){ openModal('Guida', GUIDE.map(g=>`<details class="guide"><summary>${g.t}</summary><div class="small">${g.c}</div></details>`).join(''), [{t:'Chiudi',cls:'navy',fn:(m)=>closeModal(m)}]); }
+const GUIDE = [
+ {cat:'Per iniziare', r:'tutti', t:'Che cos\'è GestionaleGDG', c:`
+  <p>È lo strumento del Comitato Giudici di Gara CSAIn (tiro con l'arco 3D) per gestire le <b>convocazioni</b> dei giudici alle gare, raccogliere le <b>disponibilità</b>, seguire <b>rimborsi</b> e <b>referti</b> e fare la <b>verifica di fine anno</b> prevista dal Regolamento Giudici di Gara (rev 1.0, 2026).</p>
+  <p>I dati sono condivisi: tutti gli utenti vedono lo stesso calendario e le stesse convocazioni, aggiornate in tempo reale. L'app funziona da telefono, tablet e computer e si può installare come applicazione (vedi "Installare l'app").</p>`},
+ {cat:'Per iniziare', r:'tutti', t:'Registrazione e accesso', c:`
+  <ol>
+   <li>Apri l'app e scegli <b>Registrati</b>. Usa l'email che il comitato ha nel tuo profilo giudice: così il tuo account viene collegato automaticamente al tuo profilo.</li>
+   <li>Se richiesto, conferma l'email dal link ricevuto. Poi torna nell'app e <b>Accedi</b>.</li>
+   <li>Se dopo l'accesso vedi l'avviso "account non ancora collegato", il comitato lo collegherà dalle impostazioni: nel frattempo puoi consultare il calendario.</li>
+  </ol>
+  <p><b>Password dimenticata</b>: dal login, "Password dimenticata" invia un link via email; aprendolo dall'app compare la finestra per impostare la nuova password.</p>
+  <p><b>Uscire</b>: pulsante ⏻ in alto a destra.</p>`},
+ {cat:'Per iniziare', r:'tutti', t:'Installare l\'app sul telefono', c:`
+  <p><b>Android (Chrome)</b>: apri l'indirizzo dell'app, menu ⋮ → "Installa app" o "Aggiungi a schermata Home".<br>
+  <b>iPhone/iPad (Safari)</b>: pulsante Condividi → "Aggiungi alla schermata Home".<br>
+  <b>Computer (Chrome/Edge)</b>: icona di installazione nella barra dell'indirizzo.</p>
+  <p>L'app installata si aggiorna da sola alla prima apertura con connessione. Le schermate già viste restano consultabili anche senza rete, ma per salvare qualsiasi modifica serve la connessione.</p>`},
+ {cat:'Per iniziare', r:'tutti', t:'Ruoli: comitato e giudice', c:`
+  <p><b>Comitato</b>: vede e gestisce tutto: giudici, gare, convocazioni, rimborsi, parametri, report, sincronizzazioni e account. Ha le schede Home, Gare, Giudici, Rimborsi, Report e l'icona ⚙ Impostazioni.</p>
+  <p><b>Giudice</b>: dichiara le proprie disponibilità, risponde alle convocazioni, compila i rimborsi, carica i referti, aggiorna i propri contatti e registra gli aggiornamenti tecnici. Ha le schede Home, Gare, Convocazioni, Profilo.</p>
+  <p>Un membro del comitato è anche un giudice: il suo account è collegato a un profilo giudice e riceve le convocazioni come gli altri; risponde alle proprie convocazioni dalla scheda della gara.</p>`},
+ {cat:'Per iniziare', r:'tutti', t:'Anno sportivo e selettore dell\'anno', c:`
+  <p>L'anno sportivo va dal <b>1° settembre al 31 agosto</b> (es. 2026/2027), come nel calendario arco.swen. Il menu a tendina accanto ai titoli (Gare, Rimborsi, Report, Convocazioni) cambia l'anno mostrato; l'anno scelto vale per tutte le schede finché non lo cambi.</p>
+  <p>Attenzione: i <b>requisiti di mantenimento</b> (servizi e aggiornamenti) non sono per anno sportivo ma sui <b>12 mesi precedenti a oggi</b>, come richiede l'art. 10 bis del regolamento.</p>`},
+
+ {cat:'Giudice', r:'giudice', t:'Home del giudice', c:`
+  <p>In alto compare un riquadro <b>Requisiti</b> solo se qualcosa non è in regola (tessera o certificato scaduti, servizi o aggiornamenti mancanti). Poi:</p>
+  <ul>
+   <li><b>Convocazioni da rispondere</b>: le proposte del comitato, con i pulsanti Accetto / Rifiuto.</li>
+   <li>I contatori: prossime gare confermate, gare future per cui non hai ancora dato disponibilità, rimborsi da compilare, servizi negli ultimi 12 mesi.</li>
+   <li><b>Le mie prossime gare</b>: le convocazioni accettate o confermate in programma.</li>
+  </ul>`},
+ {cat:'Giudice', r:'giudice', t:'Dichiarare la disponibilità', c:`
+  <ol>
+   <li>Scheda <b>Gare</b>: le gare future sono raggruppate per mese. Usa i filtri (ricerca, classificazione) per trovare quelle che ti interessano.</li>
+   <li>Sotto ogni gara ci sono due pulsanti: <b>Disponibile</b> e <b>Non disp.</b> Tocca quello giusto; il pulsante si colora (verde o rosso). Toccandolo di nuovo la dichiarazione viene tolta.</li>
+   <li>Se per una gara hai già una convocazione, al posto dei pulsanti vedi il suo stato.</li>
+  </ol>
+  <p>Dichiarare la disponibilità non è un obbligo, ma il comitato assegna scegliendo <i>prima</i> tra chi si è dichiarato disponibile: più disponibilità dai, più è probabile essere convocato sulle gare che preferisci. Chi non risponde viene comunque considerato.</p>`},
+ {cat:'Giudice', r:'giudice', t:'Rispondere a una convocazione', c:`
+  <p>Quando il comitato ti propone una gara, la trovi in Home e nella scheda <b>Convocazioni</b> con stato <span class="pill warn">Proposta</span>. Il pallino rosso sulla scheda Convocazioni conta le proposte in attesa.</p>
+  <ul>
+   <li><b>Accetto</b>: lo stato passa ad <span class="pill info">Accettata</span>; il comitato poi la <span class="pill ok">Conferma</span>. Solo la conferma rende definitiva la designazione.</li>
+   <li><b>Rifiuto</b>: devi indicare il motivo (art. 11.2: un giudice non può rifiutare una designazione senza giustificato motivo). Il motivo resta registrato.</li>
+  </ul>
+  <p>Il pulsante <b>›</b> apre la scheda della gara con luogo, organizzatore, contatti e gli altri giudici convocati. Un giudice non può cambiare da solo una convocazione già confermata: per problemi sopravvenuti contatta il comitato, che può annullarla.</p>`},
+ {cat:'Giudice', r:'giudice', t:'Compilare il rimborso spese', c:`
+  <p>Dopo la gara (a partire dal giorno successivo), nella scheda <b>Convocazioni</b> compare il pulsante <b>💶 Rimborso</b>. Art. 16: il servizio è volontario; spetta il rimborso delle spese nella misura stabilita annualmente dalla Commissione.</p>
+  <ol>
+   <li>Scegli la <b>modalità</b> (di norma quella predefinita dal comitato): <i>Km × tariffa + spese</i> oppure <i>Gettone + km</i>. La tariffa al km e il gettone sono fissati dal comitato e non modificabili.</li>
+   <li>Inserisci i <b>km totali</b> (andata e ritorno) dalla tua residenza alla sede di gara.</li>
+   <li>Aggiungi le eventuali <b>voci di spesa</b> documentate (pedaggi, vitto se previsto…) con descrizione e importo.</li>
+   <li><b>Salva bozza</b> per completare più tardi, oppure <b>Invia al comitato</b>: lo stato diventa <span class="pill warn">Compilato</span>.</li>
+  </ol>
+  <p>Il comitato approva e poi liquida. Dopo l'approvazione il rimborso non è più modificabile dal giudice. Il totale è calcolato automaticamente.</p>`},
+ {cat:'Giudice', r:'giudice', t:'Caricare il referto', c:`
+  <p>Nella scheda Convocazioni, per le gare svolte, il pulsante <b>📄 Referto</b> permette di caricare una copia del referto (PDF o foto, max 10 MB). Serve come archivio del comitato: <b>l'invio ufficiale resta quello previsto dalla Commissione</b> (art. 14). Si possono caricare più file per la stessa gara.</p>`},
+ {cat:'Giudice', r:'giudice', t:'Profilo, dati personali e aggiornamenti tecnici', c:`
+  <p>La scheda <b>Profilo</b> mostra qualifica, requisiti di mantenimento con semaforo, dati di contatto e aggiornamenti tecnici.</p>
+  <ul>
+   <li><b>Modifica</b>: puoi aggiornare email, telefono, indirizzo di residenza (usato come riferimento per i km), società di appartenenza, data di nascita e le scadenze di tessera RCT e certificato medico. Qualifica, stato attivo e note sono gestiti dal comitato.</li>
+   <li><b>Aggiornamenti tecnici</b>: registra qui ogni aggiornamento seguito (data, descrizione, ore). Serve per il requisito dell'art. 10 bis: almeno un aggiornamento ogni 12 mesi.</li>
+  </ul>`},
+
+ {cat:'Comitato', r:'comitato', t:'Home del comitato', c:`
+  <p>Sei contatori, cliccabili dove utile:</p>
+  <ul>
+   <li><b>Gare future scoperte</b>: gare in programma con meno giudici confermati del fabbisogno (apre la scheda Gare già filtrata).</li>
+   <li><b>Convocazioni in attesa di risposta</b>: proposte a cui il giudice non ha ancora risposto.</li>
+   <li><b>Accettate da confermare</b>: elencate subito sotto con il pulsante Conferma.</li>
+   <li><b>Gare passate da chiudere</b>: convocazioni confermate di gare già svolte: segna <b>Svolta</b> o <b>Assente</b>. Passaggio importante: solo le convocazioni "svolte" contano nei report e nei requisiti.</li>
+   <li><b>Rimborsi da approvare</b> e <b>Giudici con requisiti mancanti</b>.</li>
+  </ul>
+  <p>Se ci sono account registrati non collegati a un giudice compare un avviso con il link alle impostazioni.</p>`},
+ {cat:'Comitato', r:'comitato', t:'Gare: calendario, sincronizzazione e inserimento', c:`
+  <p>La scheda <b>Gare</b> mostra le gare dell'anno sportivo selezionato, per mese. Filtri: ricerca libera, classificazione, stato, <i>Solo scoperte</i>, <i>Anche passate</i>. Ogni gara riporta quanti giudici sono confermati rispetto al fabbisogno (rosso se scoperta).</p>
+  <p><b>↻ Sincronizza</b> importa il calendario da arco.swen (vedi "Sincronizzazioni"). <b>+ Gara</b> inserisce una gara a mano, per eventi non presenti sul portale.</p>
+  <p><b>Modifica gara</b> (dalla scheda della gara → Modifica): titolo, date, tipo, classificazione, organizzatore, luogo, <b>percorsi</b> e <b>giudici richiesti</b>, stato (in programma / svolta / annullata), indoor, note. Per le gare importate da arco.swen i dati anagrafici vengono riallineati a ogni sincronizzazione, mentre percorsi, fabbisogno, stato e note restano quelli impostati dal comitato.</p>
+  <p><b>Fabbisogno</b>: il Regolamento Sportivo (par. VI) richiede due giudici quando si allestiscono due percorsi in contemporanea. Il campo "Giudici richiesti" si allinea al numero di percorsi ma può essere modificato.</p>`},
+ {cat:'Comitato', r:'comitato', t:'Convocare un giudice (passo passo)', c:`
+  <ol>
+   <li>Apri la gara (dalla Home o dalla scheda Gare) e premi <b>+ Assegna giudice</b>.</li>
+   <li>L'elenco mostra i giudici attivi non ancora convocati, ordinati: prima i <span class="pill ok">disponibili</span>, poi chi <span class="pill grey">non ha risposto</span>, infine i <span class="pill err">non disponibili</span>. Per ognuno: qualifica, semaforo requisiti, servizi negli ultimi 12 mesi e gli eventuali <b>avvisi</b> (deroga necessaria, stessa società dell'organizzatore, tessera scaduta, già convocato lo stesso giorno…).</li>
+   <li>Premi <b>Assegna</b>: scegli il <b>ruolo</b> in gara (Giudice; Coordinatore per i Nazionali nelle gare nazionali; Affiancamento per chi è in affiancamento), spunta la <b>deroga</b> se richiesta, scegli se creare una <b>Proposta</b> (il giudice deve accettare) o una convocazione <b>Confermata</b> direttamente (per accordi già presi a voce).</li>
+   <li>Quando il giudice accetta, <b>Conferma</b> (dalla Home o dalla scheda gara). Dopo la gara segna <b>Svolta</b> o <b>Assente</b>.</li>
+  </ol>
+  <p><b>✕</b> annulla una convocazione (resta nello storico come "annullata"). Le regole bloccanti sono applicate dal database, quindi valgono anche se qualcuno prova a aggirare l'interfaccia.</p>`},
+ {cat:'Comitato', r:'comitato', t:'Stati di una convocazione', c:`
+  <p><span class="pill warn">Proposta</span> → <span class="pill info">Accettata</span> o <span class="pill err">Rifiutata</span> (con motivo) → <span class="pill ok">Confermata</span> → <span class="pill ok">Svolta</span> o <span class="pill err">Assente</span>. In qualsiasi momento il comitato può impostare <span class="pill grey">Annullata</span>.</p>
+  <p>Ogni cambio di stato è registrato nello storico con data e autore. Nei conteggi di copertura contano solo le convocazioni confermate o svolte con ruolo diverso da Affiancamento; nei report di attività contano solo le "svolte".</p>`},
+ {cat:'Comitato', r:'comitato', t:'Regole del regolamento applicate dall\'app', c:`
+  <ul>
+   <li><b>Qualifiche</b> (art. 7): Regionale, Nazionale, Emerito. Il Regionale è designabile per gare provinciali, regionali e interregionali; per una gara <b>Nazionale/Internazionale/Europea</b> serve la <b>deroga</b> esplicita del comitato, altrimenti la convocazione viene rifiutata dal sistema (art. 7 ter).</li>
+   <li><b>Coordinatore</b>: solo un Giudice Nazionale, solo in gare nazionali/internazionali (art. 7 ter).</li>
+   <li><b>Affiancamento</b> (art. 2): chi ha appena concluso il corso va segnato "in affiancamento" nel profilo. Le sue convocazioni hanno sempre ruolo Affiancamento e non possono essere confermate se sarebbe l'unico giudice della gara. Il profilo conta le gare di affiancamento svolte rispetto a quelle richieste (2 di default).</li>
+   <li><b>Doppia convocazione</b>: bloccata se il giudice ha già una convocazione attiva nelle stesse date.</li>
+   <li><b>Incompatibilità</b> (art. 4): avviso (non blocco) se la società del giudice coincide con quella organizzatrice.</li>
+   <li><b>Rifiuto</b> (art. 11.2): motivo obbligatorio.</li>
+   <li><b>Requisiti</b>: avviso in fase di assegnazione se il giudice non è attivo, ha tessera o certificato scaduti o è fuori dai limiti di età.</li>
+  </ul>`},
+ {cat:'Comitato', r:'comitato', t:'Giudici: elenco, scheda e requisiti', c:`
+  <p>La scheda <b>Giudici</b> elenca i giudici attivi con semaforo, qualifica, provincia, società, servizi e aggiornamenti negli ultimi 12 mesi e gli eventuali avvisi. Filtri: ricerca, qualifica, <i>Con avvisi</i>, <i>Anche non attivi</i>. <b>⬇ Excel</b> esporta l'elenco completo.</p>
+  <p><b>Semaforo</b>: 🟢 in regola · 🟡 avviso (servizi o aggiornamenti sotto il minimo, scadenze entro 30 giorni) · 🔴 requisito mancante (tessera o certificato scaduti, inattività oltre il limite, età fuori range) · ⚪ non attivo.</p>
+  <p><b>Scheda giudice</b>: contatti, scadenze, contatori, aggiornamenti tecnici (con + Aggiungi) e storico convocazioni. <b>Modifica</b> apre tutti i campi, compresi quelli riservati al comitato: qualifica, "Giudice dal", in affiancamento e gare richieste, attivo, macroarea, ID albo, note.</p>
+  <p><b>+ Giudice</b> inserisce a mano un giudice non presente nell'albo. <b>Elimina</b> cancella anche tutto lo storico: preferisci "non attivo".</p>
+  <p><b>↻ Albo</b> sincronizza con l'Albo Nazionale (vedi "Sincronizzazioni").</p>`},
+ {cat:'Comitato', r:'comitato', t:'Rimborsi: approvazione e liquidazione', c:`
+  <p>La scheda <b>Rimborsi</b> elenca tutte le convocazioni confermate/svolte dell'anno con gara già passata, con stato e totale. I contatori in alto: importi da approvare, approvati da liquidare, liquidati, rimborsi non ancora compilati. Il pallino sulla scheda conta i rimborsi <i>compilati</i> in attesa di approvazione.</p>
+  <ol>
+   <li>Apri la riga: vedi la compilazione del giudice. Il comitato può correggere km, tariffa, gettone, spese e note, o passare alla modalità <b>Importo manuale</b> (riservata al comitato).</li>
+   <li><b>Approva</b> → stato Approvato (il giudice non può più modificarlo). <b>Liquida</b> → stato Liquidato con data.</li>
+  </ol>
+  <p><b>⬇ Excel</b> produce un file con il dettaglio di ogni rimborso (km, tariffa, gettone, spese, totale, stato) e un foglio con i totali per giudice.</p>
+  <p><b>Modalità</b>: <i>Km × tariffa + spese</i>; <i>Gettone + km</i> (gettone per gara regionale, nazionale o per il coordinatore, più il chilometrico); <i>Importo manuale</i>. Tariffa e gettoni si impostano nei Parametri dell'anno sportivo.</p>`},
+ {cat:'Comitato', r:'comitato', t:'Report di fine anno', c:`
+  <p>La scheda <b>Report</b> ha cinque sezioni per l'anno sportivo selezionato; <b>⬇ Excel completo</b> esporta le prime tre in un unico file.</p>
+  <ul>
+   <li><b>Attività giudici</b>: per ogni giudice gare svolte (con barra), suddivise per classificazione, coordinamenti, affiancamenti, disponibilità date, convocazioni ricevute, rifiuti, assenze, rimborsi. Contatori: servizi totali, media per giudice, giudici mai convocati, rifiuti.</li>
+   <li><b>Mantenimento</b>: verifica dei requisiti del regolamento (art. 10 bis, 6, 3, 13, 20) per ogni giudice attivo, con semaforo e note. Ordinato dai casi più gravi.</li>
+   <li><b>Copertura</b>: gare dell'anno con richiesti/confermati/disponibilità, gare scoperte in evidenza, riepilogo per regione, percentuale di copertura.</li>
+   <li><b>arco.swen</b>: confronto tra il giudice registrato dall'organizzatore sul portale e le convocazioni confermate qui: <i>Coerente</i>, <i>Diverso dalla convocazione</i>, <i>Manca la convocazione</i>, <i>Giudice non riconosciuto</i> (nome sul portale diverso da cognome+nome in elenco). Il pulsante <b>Importa</b> crea, per le gare passate con giudice riconosciuto e senza convocazione, una convocazione "svolta": serve a ricostruire lo storico degli anni precedenti.</li>
+   <li><b>Referti</b>: gare svolte con o senza copia del referto caricata.</li>
+  </ul>`},
+ {cat:'Comitato', r:'comitato', t:'Impostazioni: parametri, sincronizzazioni, account', c:`
+  <p>Icona <b>⚙</b> in alto (solo comitato).</p>
+  <p><b>Parametri anno sportivo</b>: tariffa €/km, gettoni (regionale, nazionale, coordinatore), modalità di rimborso predefinita, minimi di servizi e aggiornamenti in 12 mesi, mesi massimi di inattività, limiti di età. Vanno impostati per ogni anno sportivo (art. 16: misura stabilita annualmente); se mancano si usano quelli dell'anno più recente.</p>
+  <p><b>Sincronizzazione</b>: pulsanti per calendario gare e albo giudici, più il <b>Registro</b> delle esecuzioni con esito e note.</p>
+  <p><b>Account e ruoli</b>: ogni account registrato va collegato a un giudice e ha un ruolo (Giudice o Comitato). Chi si registra con l'email presente nel profilo viene collegato in automatico. Non puoi togliere il ruolo Comitato a te stesso.</p>`},
+ {cat:'Comitato', r:'comitato', t:'Sincronizzazioni: arco.swen e Albo Nazionale', c:`
+  <p><b>Calendario gare (arco.swen)</b>: legge il calendario pubblico del portale e importa le sole gare (non corsi e attività didattiche) con data, tipo, classificazione, organizzatore, luogo, contatti e il <b>giudice registrato</b> dall'organizzatore. Le gare nuove passate vengono create come "svolte", quelle future come "in programma"; le gare disattivate sul portale vengono segnate "annullate" con una nota nel registro. Percorsi, fabbisogno, stato e note del comitato non vengono mai sovrascritti.</p>
+  <p><b>Albo giudici (Albo Nazionale CSAIN)</b>: legge gli Ufficiali di Gara della disciplina Tiro con l'arco · 3D. L'albo fornisce solo cognome, nome, provincia e sesso: i giudici nuovi vengono creati come Regionali con la nota "verificare qualifica e contatti"; quelli già presenti (stesso ID albo o stesso cognome+nome) vengono collegati. Chi non risulta più nell'albo viene <b>segnalato</b> ("non in albo") ma non cancellato né disattivato: decide il comitato.</p>
+  <p>Quando lanciarle: il calendario ogni settimana o prima di pianificare le convocazioni; l'albo dopo ogni corso o aggiornamento dell'albo nazionale. Le sincronizzazioni non toccano convocazioni, disponibilità e rimborsi.</p>`},
+
+ {cat:'Domande frequenti', r:'tutti', t:'Perché una gara risulta "scoperta" anche se ho convocato qualcuno?', c:`<p>Contano solo le convocazioni <b>confermate</b> (o svolte) con ruolo Giudice o Coordinatore. Una proposta non ancora accettata, una accettata non ancora confermata o un affiancamento non coprono il fabbisogno.</p>`},
+ {cat:'Domande frequenti', r:'tutti', t:'Ho convocato un giudice ma l\'app dice "richiede deroga"', c:`<p>È un Giudice Regionale su una gara Nazionale/Internazionale/Europea (art. 7 ter). Nella finestra di conferma dell'assegnazione spunta "Autorizzo la deroga del comitato". La deroga resta visibile sulla convocazione.</p>`},
+ {cat:'Domande frequenti', r:'tutti', t:'Non riesco a confermare un giudice in affiancamento', c:`<p>Un giudice in affiancamento deve essere affiancato da un giudice riconosciuto (art. 2): conferma prima almeno un giudice con ruolo Giudice o Coordinatore sulla stessa gara.</p>`},
+ {cat:'Domande frequenti', r:'tutti', t:'Un giudice non compare tra gli assegnabili', c:`<p>O è già convocato per quella gara (anche come proposta), oppure è segnato "non attivo". I non attivi si vedono nella scheda Giudici con il filtro "Anche non attivi".</p>`},
+ {cat:'Domande frequenti', r:'tutti', t:'I conteggi del report non tornano', c:`<p>Controlla che le gare passate siano state <b>chiuse</b> (Home → Gare passate da chiudere → Svolta/Assente): finché una convocazione resta "confermata" non conta come servizio svolto. Controlla anche l'anno sportivo selezionato nel menu a tendina.</p>`},
+ {cat:'Domande frequenti', r:'tutti', t:'Il giudice registrato su arco.swen non viene riconosciuto', c:`<p>Il confronto usa "COGNOME NOME" (o "NOME COGNOME") esattamente come nell'elenco giudici. Se sul portale c'è un refuso o un secondo nome, la gara finisce tra i "non riconosciuti": crea la convocazione a mano dalla scheda della gara.</p>`},
+ {cat:'Domande frequenti', r:'tutti', t:'Ho sbagliato a segnare "Assente"', c:`<p>Dalla scheda della gara annulla la convocazione (✕) e ricreala con stato "Confermata direttamente", poi segnala Svolta. Lo storico conserva entrambe le operazioni.</p>`},
+ {cat:'Domande frequenti', r:'tutti', t:'Posso lavorare senza connessione?', c:`<p>Le schermate già aperte restano visibili, ma qualsiasi modifica (disponibilità, risposte, rimborsi) richiede la connessione: se salvi senza rete compare un errore e l'operazione non viene registrata.</p>`},
+ {cat:'Domande frequenti', r:'tutti', t:'Chi vede i miei dati?', c:`<p>Tutti gli utenti vedono nome, qualifica e convocazioni dei colleghi (serve per conoscere la squadra di gara). Contatti, scadenze, rimborsi e referti sono visibili solo a te e al comitato. Le regole di accesso sono applicate dal database, non solo dall'interfaccia.</p>`}
+];
+VIEWS.guida = ()=>{
+  const f=S.filtri.guida||(S.filtri.guida={q:'',r:S.comitato?'tutti':'giudice'});
+  const q=(f.q||'').toLowerCase().trim();
+  const vis=GUIDE.filter(g=>(f.r==='tutti'||g.r==='tutti'||g.r===f.r) && (!q || (g.t+' '+g.c.replace(/<[^>]+>/g,' ')).toLowerCase().includes(q)));
+  const cats=[...new Set(vis.map(g=>g.cat))];
+  return `<div class="row between mb"><h2 style="margin:0">Guida</h2><button class="btn sm" onclick="go(S.prevTab||'home')">← Torna all'app</button></div>
+  <div class="filters"><input class="search" placeholder="Cerca nella guida…" value="${esc(f.q||'')}" oninput="S.filtri.guida.q=this.value;render()">
+    ${[['tutti','Tutto'],['comitato','Comitato'],['giudice','Giudice']].map(([k,l])=>`<label class="chip ${f.r===k?'on':''}" onclick="S.filtri.guida.r='${k}';render()">${l}</label>`).join('')}</div>
+  ${cats.length?cats.map(c=>`<div class="card"><h3>${esc(c)}</h3>${vis.filter(g=>g.cat===c).map(g=>`<details class="guide" ${q?'open':''}><summary>${esc(g.t)} ${g.r!=='tutti'?pill(g.r,'grey'):''}</summary><div class="small guide-body">${g.c}</div></details>`).join('')}</div>`).join(''):'<div class="card"><p class="muted">Nessuna voce corrisponde alla ricerca.</p></div>'}
+  <div class="card"><h3>Novità e versioni</h3>${CHANGELOG.map(v=>`<details class="guide" ${v.v===APP_VER?'open':''}><summary>Versione ${v.v} <span class="muted small">· ${fmtD(v.d)}</span></summary><ul class="small">${v.items.map(i=>`<li>${i}</li>`).join('')}</ul></details>`).join('')}
+  <p class="small muted">Versione installata: ${APP_VER}</p></div>`;
+};
+function openGuide(){ closeModal(); if(S.tab!=='guida') S.prevTab=S.tab; go('guida'); }
 
 init();
 </script>

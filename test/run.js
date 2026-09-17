@@ -47,7 +47,7 @@ const APP = require('path').join(__dirname,'..');
   await page.click('.modal-bg:last-child .actions >> text=Salva'); await page.waitForTimeout(300);
   await page.evaluate(()=>$('modals').innerHTML=''); await page.evaluate(()=>profiloForm('u3')); await page.waitForTimeout(150); await shot(page,'14-profilo-form');
   await page.evaluate(()=>$('modals').innerHTML=''); await page.evaluate(()=>syncDlg('swen')); await page.waitForTimeout(150); await page.click('.modal-bg:last-child .actions >> text=Avvia'); await page.waitForTimeout(400); await shot(page,'15-sync');
-  await page.evaluate(()=>$('modals').innerHTML=''); await page.evaluate(()=>openGuide()); await page.waitForTimeout(150); await shot(page,'16-guida');
+  await page.evaluate(()=>$('modals').innerHTML=''); await page.evaluate(()=>openGuide()); await page.waitForTimeout(150); await shot(page,'16-guida'); await page.fill('.search','deroga'); await page.waitForTimeout(150); await shot(page,'16b-guida-ricerca'); await page.evaluate(()=>go(S.prevTab));
   await page.evaluate(()=>$('modals').innerHTML=''); await page.evaluate(()=>{S.filtri.report='riconcilia';go('report')});
   await page.evaluate(()=>cambiaStato('c3','svolta')); await page.waitForTimeout(400);
   await page.evaluate(()=>cambiaStato('c2','rifiutata')); await page.waitForTimeout(200); await page.fill('#rif-motivo','impegno di lavoro'); await page.click('.modal-bg:last-child .actions >> text=Rifiuta'); await page.waitForTimeout(400);
