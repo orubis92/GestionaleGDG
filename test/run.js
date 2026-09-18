@@ -27,7 +27,7 @@ const APP = require('path').join(__dirname,'..');
   let page = await newPage();
   await page.fill('#li-email','comitato@test.it'); await page.fill('#li-pass','x'); await page.click('text=Accedi');
   await page.waitForSelector('#app:not(.hidden)'); await page.waitForTimeout(300);
-  await shot(page,'01-home-comitato');
+  await shot(page,'01-home-comitato'); await page.evaluate(()=>mostraOnboarding(true)); await page.waitForTimeout(150); await shot(page,'01b-onboarding'); await page.click('.modal-bg:last-child .actions >> text=Più tardi'); await page.waitForTimeout(150);
   for (const t of ['gare','giudici','rimborsi','report','impostazioni']) { await page.evaluate(k=>go(k), t); await page.waitForTimeout(150); await shot(page,'02-'+t); }
   for (const r of ['giudici','mantenimento','copertura','riconcilia','referti']) { await page.evaluate(k=>{S.filtri.report=k;go('report')}, r); await page.waitForTimeout(150); await shot(page,'03-report-'+r); }
   // modali
@@ -52,6 +52,7 @@ const APP = require('path').join(__dirname,'..');
   await page.click('.modal-bg:last-child .actions >> text=Salva'); await page.waitForTimeout(300);
   await page.evaluate(()=>$('modals').innerHTML=''); await page.evaluate(()=>profiloForm('u3')); await page.waitForTimeout(150); await shot(page,'14-profilo-form');
   await page.evaluate(()=>$('modals').innerHTML=''); await page.evaluate(()=>syncDlg('swen')); await page.waitForTimeout(150); await page.click('.modal-bg:last-child .actions >> text=Avvia'); await page.waitForTimeout(400); await shot(page,'15-sync');
+  await page.evaluate(()=>$('modals').innerHTML=''); await page.evaluate(()=>openNotifiche()); await page.waitForTimeout(150); await shot(page,'15b-notifiche'); await page.evaluate(()=>apriNotifica('n1')); await page.waitForTimeout(200); await shot(page,'15c-notifica-aperta'); await page.evaluate(()=>$('modals').innerHTML=''); await page.evaluate(()=>prefNotificheDlg()); await page.waitForTimeout(150); await shot(page,'15d-preferenze'); await page.click('.modal-bg:last-child .actions >> text=Salva'); await page.waitForTimeout(300);
   await page.evaluate(()=>$('modals').innerHTML=''); await page.evaluate(()=>openGuide()); await page.waitForTimeout(150); await shot(page,'16-guida'); await page.fill('.search','deroga'); await page.waitForTimeout(150); await shot(page,'16b-guida-ricerca'); await page.evaluate(()=>go(S.prevTab));
   await page.evaluate(()=>$('modals').innerHTML=''); await page.evaluate(()=>{S.filtri.report='riconcilia';go('report')}); await page.waitForTimeout(150); await shot(page,'16c-riconcilia'); await page.evaluate(()=>importaStorico()); await page.waitForTimeout(150); await page.click('.modal-bg:last-child .actions >> text=Conferma'); await page.waitForTimeout(500); await shot(page,'16d-riconcilia-done'); await page.evaluate(()=>$('modals').innerHTML='');
   await page.evaluate(()=>cambiaStato('c3','svolta')); await page.waitForTimeout(400);
@@ -67,7 +68,7 @@ const APP = require('path').join(__dirname,'..');
   page = await newPage();
   await page.fill('#li-email','rossi@test.it'); await page.fill('#li-pass','x'); await page.click('text=Accedi');
   await page.waitForSelector('#app:not(.hidden)'); await page.waitForTimeout(300);
-  await shot(page,'30-home-giudice');
+  await shot(page,'30-home-giudice'); await page.evaluate(()=>apriNotifica('n2')); await page.waitForTimeout(200); await shot(page,'30b-da-notifica'); await page.evaluate(()=>$('modals').innerHTML=''); await page.evaluate(()=>go('home'));
   for (const t of ['gare','convocazioni','profilo']) { await page.evaluate(k=>go(k), t); await page.waitForTimeout(150); await shot(page,'31-'+t); }
   await page.evaluate(()=>{S.filtri.gareSez='aggiornamenti';go('gare')}); await page.waitForTimeout(150); await shot(page,'31b-aggiornamenti-giudice');
   await page.evaluate(()=>setPresenza('k1','partecipa')); await page.waitForTimeout(300); await page.evaluate(()=>openCorso('k1')); await page.waitForTimeout(150); await shot(page,'31c-corso-giudice'); await page.evaluate(()=>$('modals').innerHTML=''); await page.evaluate(()=>{S.filtri.gareSez='gare'});

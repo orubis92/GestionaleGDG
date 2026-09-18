@@ -209,6 +209,7 @@ details.guide summary{cursor:pointer;font-weight:600;padding:.4rem 0}
   <header>
     <div class="logo">GdG</div>
     <div class="title">GestionaleGDG<small id="hdr-sub">Comitato Giudici di Gara CSAIn</small></div>
+    <button onclick="openNotifiche()" title="Notifiche" id="btn-bell">🔔<span class="badge-dot hidden" id="bell-cnt"></span></button>
     <button onclick="openGuide()" title="Guida">?</button>
     <button id="btn-settings" onclick="go('impostazioni')" title="Impostazioni" class="hidden">⚙</button>
     <button onclick="doLogout()" title="Esci">⏻</button>
@@ -227,10 +228,11 @@ details.guide summary{cursor:pointer;font-weight:600;padding:.4rem 0}
    lasciali vuoti: al primo avvio l'app li chiede e li salva sul dispositivo.
    ===================================================================== */
 const CONFIG = {
+  VAPID_PUBLIC_KEY: 'BALlIoShSkm5X39FgLIRghsppFdYOemM1oImi97Qfq7NvrmK6LS3yEOA-8Xhx9tGp4edHKv9WUAu0cWty2neww0',   // chiave pubblica VAPID per le notifiche push (vedi README); vuota = push disattivate
   SUPABASE_URL: 'https://vscxesrpxmmyssrdegpm.supabase.co',
   SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZzY3hlc3JweG1teXNzcmRlZ3BtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk2MTk3MzYsImV4cCI6MjEwNTE5NTczNn0.cm98J7vJzY4qbxlsZ_9XpxYHTSvo7bMh4Sp7d1b_BeI'
 };
-const APP_VER = '1.5.0';
+const APP_VER = '1.6.1';
 /* ===================== COSTANTI DI DOMINIO ===================== */
 const QUALIFICHE = { regionale:'Giudice Regionale', nazionale:'Giudice Nazionale', emerito:'Giudice Emerito' };
 const RUOLI_GARA = { giudice:'Giudice', coordinatore:'Coordinatore', affiancamento:'Affiancamento' };
@@ -250,7 +252,7 @@ const MESI_S = ['gen','feb','mar','apr','mag','giu','lug','ago','set','ott','nov
 let sb = null;                 // client supabase
 const S = {
   user:null, profilo:null, giudice:null, comitato:false,
-  giudici:[], gare:[], conv:[], disp:[], parametri:[], profili:[], aggiornamenti:[], statoGiudici:[], corsi:[], presenze:[],
+  giudici:[], gare:[], conv:[], disp:[], parametri:[], profili:[], aggiornamenti:[], statoGiudici:[], corsi:[], presenze:[], notifiche:[], pref:null,
   tab:'home', annoSportivo:null, filtri:{}, loaded:false
 };
 
@@ -346,6 +348,133 @@ async function afterLogin(user){
   await loadAll();
   buildNav();
   go('home');
+  avviaRealtime();
+  apriDaHash();
+  setTimeout(()=>mostraOnboarding(false), 600);
+}
+/* Primo ingresso: spiegazione e attivazione delle notifiche.
+   Ricompare a ogni accesso finché le push non sono attive su questo dispositivo, salvo "Non chiedermelo più". */
+function mostraOnboarding(forza){
+  if(!forza){
+    if(localStorage.getItem('gdg_push_ok')==='1' || localStorage.getItem('gdg_onboard_stop')==='1') return;
+    if(!CONFIG.VAPID_PUBLIC_KEY) return;                                    // push non configurate: niente da attivare
+    if(!(isIOS()&&!isStandalone()) && (!pushSupportato() || Notification.permission==='denied')) return;
+    if($('modals').children.length) return;
+  }
+  const ios = isIOS() && !isStandalone();
+  const passi = ios ? `
+    <ol>
+      <li>Tocca il pulsante <b>Condividi</b> di Safari (il quadrato con la freccia in basso).</li>
+      <li>Scegli <b>Aggiungi alla schermata Home</b> e conferma.</li>
+      <li>Chiudi Safari e apri <b>GestionaleGDG</b> dall'icona appena creata.</li>
+      <li>Al primo avvio ti chiederà di attivare le notifiche: tocca <b>Attiva</b> e poi <b>Consenti</b>.</li>
+    </ol>
+    <p class="small muted">Su iPhone e iPad è l'unico modo per ricevere le notifiche ad app chiusa (iOS 16.4 o successivo).</p>`
+  : `
+    <ol>
+      <li>Premi <b>Attiva ora</b>.</li>
+      <li>Il browser chiede il permesso di inviare notifiche: scegli <b>Consenti</b>.</li>
+      <li>Ripeti l'operazione su ogni dispositivo che usi (telefono, computer).</li>
+    </ol>
+    <p class="small muted">Se per errore scegli "Blocca", potrai riattivarle solo dalle impostazioni del browser per questo sito (icona del lucchetto accanto all'indirizzo).</p>`;
+  const html=`<p>Con le notifiche ricevi subito, anche ad app chiusa: ${S.comitato?'le risposte dei giudici alle convocazioni, le nuove disponibilità sulle gare scoperte, i rimborsi da approvare e i nuovi account da attivare':'le convocazioni del comitato, le conferme, gli inviti ai corsi, l\'esito dei rimborsi e i promemoria prima delle gare'}. Senza, dovrai ricordarti di aprire l'app e guardare la campanella.</p>
+    ${passi}
+    <p class="small">Puoi comunque scegliere cosa ricevere (e aggiungere l'email) dalla campanella → ⚙ Preferenze.</p>`;
+  const actions=[];
+  if(!ios) actions.push({t:'Attiva ora',cls:'primary',fn:async(m)=>{ closeModal(m); await abilitaPush(); }});
+  else actions.push({t:'Ho capito',cls:'primary',fn:(m)=>closeModal(m)});
+  actions.push({t:'Più tardi',fn:(m)=>closeModal(m)});
+  actions.push({t:'Non chiedermelo più',fn:(m)=>{ localStorage.setItem('gdg_onboard_stop','1'); closeModal(m); toast('Puoi attivarle quando vuoi dalla campanella'); }});
+  openModal(ios?'Installa l\'app e attiva le notifiche':'Attiva le notifiche', html, actions, {noClose:true});
+}
+
+/* ===================== NOTIFICHE ===================== */
+let rtDebounce=null, rtCanale=null;
+function avviaRealtime(){
+  if(!sb.channel || rtCanale) return;
+  try{
+    rtCanale = sb.channel('gdg-live')
+      .on('postgres_changes', { event:'INSERT', schema:'public', table:'notifiche', filter:`user_id=eq.${S.user.id}` }, (p)=>{
+        const n=p.new; if(S.notifiche.some(x=>x.id===n.id)) return;
+        S.notifiche.unshift(n); updateBell(); toast('🔔 '+n.titolo,'');
+        if(navigator.serviceWorker && Notification && Notification.permission==='granted' && document.visibilityState!=='visible'){ navigator.serviceWorker.ready.then(r=>r.showNotification(n.titolo,{body:n.corpo||'',icon:'./icons/icon-192.png',tag:n.id,data:{url:'./#n='+n.id}})).catch(()=>{}); }
+        pianificaReload();
+      });
+    ['convocazioni','disponibilita','corsi','corsi_presenze','rimborsi','gare','profili'].forEach(t=>{
+      rtCanale.on('postgres_changes', { event:'*', schema:'public', table:t }, ()=>pianificaReload());
+    });
+    rtCanale.subscribe();
+  }catch(e){ console.warn('realtime non disponibile', e); }
+}
+function pianificaReload(){ clearTimeout(rtDebounce); rtDebounce=setTimeout(async()=>{ if($('modals').children.length) { pianificaReload(); return; } await loadAll(); render(); }, 1500); }
+function apriDaHash(){ const m=location.hash.match(/n=([0-9a-f-]{36})/); if(!m) return; history.replaceState(null,'',location.pathname); const n=S.notifiche.find(x=>x.id===m[1]); if(n) apriNotifica(n.id); }
+async function apriNotifica(id){
+  const n=S.notifiche.find(x=>x.id===id); if(!n) return;
+  if(!n.letta){ n.letta=true; updateBell(); sb.from('notifiche').update({letta:true}).eq('id',id).then(()=>{}); }
+  closeModal(); const d=n.dati||{};
+  if(d.tab){ if(d.sez) S.filtri.gareSez=d.sez; const tabOk=document.querySelector(`nav.tabs button[data-tab="${d.tab}"]`)||d.tab==='impostazioni'; if(tabOk) go(d.tab); }
+  if(d.gara_id && S.gare.some(g=>g.id===d.gara_id)) openGara(d.gara_id);
+  else if(d.corso_id && S.corsi.some(k=>k.id===d.corso_id)) openCorso(d.corso_id);
+  else if(d.convocazione_id && S.comitato){ const c=S.conv.find(x=>x.id===d.convocazione_id); if(c) rimborsoForm(c.id); }
+}
+function openNotifiche(){
+  const list=S.notifiche;
+  const html=`<div class="row between mb"><span class="small muted">${list.filter(n=>!n.letta).length} da leggere</span><div class="row"><button class="btn sm" onclick="segnaTutteLette()">Segna tutte lette</button><button class="btn sm" onclick="closeModal();prefNotificheDlg()">⚙ Preferenze</button></div></div>
+    ${statoPushHtml()}
+    ${list.length?list.map(n=>`<div class="list-item clickable" onclick="apriNotifica('${n.id}')" style="cursor:pointer;${n.letta?'opacity:.65':''}"><div class="body"><div class="t">${n.letta?'':'<span class="sem err"></span>'}${esc(n.titolo)}</div><div class="s">${esc(n.corpo||'')}<br><span class="muted">${new Date(n.created_at).toLocaleString('it-IT',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}</span></div></div></div>`).join(''):'<p class="muted">Nessuna notifica.</p>'}`;
+  openModal('Notifiche', html, [{t:'Chiudi',cls:'navy',fn:(m)=>closeModal(m)}]);
+}
+async function segnaTutteLette(){ const ids=S.notifiche.filter(n=>!n.letta).map(n=>n.id); if(!ids.length) return; S.notifiche.forEach(n=>n.letta=true); updateBell(); await sb.from('notifiche').update({letta:true}).in('id',ids); closeModal(); openNotifiche(); }
+const isIOS = ()=>/iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+const isStandalone = ()=> window.matchMedia('(display-mode: standalone)').matches || navigator.standalone===true;
+function pushSupportato(){ return 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window && !!CONFIG.VAPID_PUBLIC_KEY; }
+function statoPushHtml(){
+  if(!CONFIG.VAPID_PUBLIC_KEY) return '<div class="alert warn small">Notifiche push non configurate (manca la chiave VAPID nell\'app): ricevi comunque le notifiche qui dentro e, se attive, via email.</div>';
+  if(isIOS() && !isStandalone()) return '<div class="alert info small">Su iPhone/iPad le notifiche push arrivano solo se l\'app è installata: Safari → Condividi → <b>Aggiungi alla schermata Home</b>, poi aprila da lì e attiva le notifiche.</div>';
+  if(!pushSupportato()) return '<div class="alert warn small">Questo browser non supporta le notifiche push.</div>';
+  if(Notification.permission==='denied') return '<div class="alert err small">Notifiche bloccate nelle impostazioni del browser per questo sito: riattivale da lì per riceverle a app chiusa.</div>';
+  if(Notification.permission==='granted' && localStorage.getItem('gdg_push_ok')==='1') return '<div class="alert ok small">Notifiche push attive su questo dispositivo. <a href="#" onclick="testPush();return false">Invia una prova</a></div>';
+  return `<div class="alert info small">Ricevi le notifiche anche ad app chiusa. <button class="btn sm primary" onclick="abilitaPush()">Attiva su questo dispositivo</button></div>`;
+}
+function urlB64ToU8(b){ const p='='.repeat((4-b.length%4)%4); const s=(b+p).replace(/-/g,'+').replace(/_/g,'/'); const r=atob(s); return Uint8Array.from([...r].map(c=>c.charCodeAt(0))); }
+async function abilitaPush(){
+  try{
+    if(!pushSupportato()) return toast('Push non supportate su questo dispositivo','err');
+    const perm=await Notification.requestPermission(); if(perm!=='granted') return toast('Permesso non concesso','err');
+    const reg=await navigator.serviceWorker.ready;
+    let sub=await reg.pushManager.getSubscription();
+    if(!sub) sub=await reg.pushManager.subscribe({ userVisibleOnly:true, applicationServerKey: urlB64ToU8(CONFIG.VAPID_PUBLIC_KEY) });
+    const j=sub.toJSON();
+    const {error}=await sb.from('push_iscrizioni').upsert({ user_id:S.user.id, endpoint:j.endpoint, p256dh:j.keys.p256dh, auth:j.keys.auth, user_agent:navigator.userAgent.slice(0,200) }, { onConflict:'endpoint' });
+    if(error) return err(error);
+    localStorage.setItem('gdg_push_ok','1'); localStorage.removeItem('gdg_push_no');
+    toast('Notifiche push attivate','ok'); closeModal(); openNotifiche(); render();
+  }catch(e){ err(e); }
+}
+async function disabilitaPush(){
+  try{ const reg=await navigator.serviceWorker.ready; const sub=await reg.pushManager.getSubscription(); if(sub){ await sb.from('push_iscrizioni').delete().eq('endpoint',sub.endpoint); await sub.unsubscribe(); } localStorage.removeItem('gdg_push_ok'); toast('Push disattivate su questo dispositivo'); closeModal(); prefNotificheDlg(); }catch(e){ err(e); }
+}
+async function testPush(){ const {error}=await sb.from('notifiche').insert({ user_id:S.user.id, tipo:'sistema', titolo:'Notifica di prova', corpo:'Se la leggi anche ad app chiusa, le push funzionano.', dati:{} }); if(error) return err(error); toast('Inviata: chiudi l\'app e attendi qualche secondo'); }
+function pushBannerHtml(){
+  if(!pushSupportato() || Notification.permission!=='default' || localStorage.getItem('gdg_push_no')==='1' || (isIOS()&&!isStandalone())) return '';
+  return `<div class="alert info"><b>Notifiche</b>: vuoi ricevere convocazioni, inviti e promemoria anche ad app chiusa? <div class="row mt"><button class="btn sm primary" onclick="abilitaPush()">Attiva</button><button class="btn sm" onclick="localStorage.setItem('gdg_push_no','1');render()">Non ora</button></div></div>`;
+}
+function prefNotificheDlg(){
+  const p=S.pref||{push:true,email:false,eventi:{}}; const ev=Object.assign({convocazione:true,corso:true,rimborso:true,promemoria:true,comitato:true}, p.eventi||{});
+  const tipi=[['convocazione','Convocazioni (proposte, conferme, annullamenti)'],['corso','Inviti a corsi e aggiornamenti'],['rimborso','Rimborsi (approvazione, liquidazione)'],['promemoria','Promemoria (3 giorni prima della gara, il giorno prima di un corso)']];
+  if(S.comitato) tipi.push(['comitato','Comitato (risposte dei giudici, disponibilità, rimborsi da approvare, nuovi account)']);
+  const html=`${statoPushHtml()}
+    <div class="check"><input type="checkbox" id="pn-push" ${p.push?'checked':''}><label for="pn-push">Notifiche push (tutti i miei dispositivi attivati)</label></div>
+    <div class="check"><input type="checkbox" id="pn-email" ${p.email?'checked':''}><label for="pn-email">Email a ${esc(S.user.email)}</label></div>
+    <h4 class="mt">Cosa ricevere</h4>
+    ${tipi.map(([k,l])=>`<div class="check"><input type="checkbox" id="pn-ev-${k}" ${ev[k]!==false?'checked':''}><label for="pn-ev-${k}">${l}</label></div>`).join('')}
+    <p class="small muted mt">Le notifiche restano sempre consultabili dalla campanella in alto, indipendentemente da queste scelte.</p>
+    ${Notification.permission==='granted'&&localStorage.getItem('gdg_push_ok')==='1'?'<p class="small"><a href="#" onclick="disabilitaPush();return false">Disattiva le push su questo dispositivo</a></p>':''}`;
+  openModal('Preferenze notifiche', html, [{t:'Annulla',fn:(m)=>closeModal(m)},{t:'Salva',cls:'primary',fn:async(m)=>{
+    const eventi={}; tipi.forEach(([k])=>eventi[k]=$('pn-ev-'+k).checked); if(!S.comitato) eventi.comitato=true;
+    const rec={user_id:S.user.id, push:$('pn-push').checked, email:$('pn-email').checked, eventi, updated_at:new Date().toISOString()};
+    const {error}=await sb.from('notifiche_preferenze').upsert(rec); if(error) return err(error); S.pref=rec; closeModal(m); toast('Preferenze salvate','ok');
+  }}]);
 }
 
 
@@ -365,6 +494,7 @@ async function loadAll(){
   ]);
   for(const r of [g,ga,c,d,p,agg,sg,ko,pr]) if(r.error) return err(r.error);
   S.giudici=g.data; S.gare=ga.data; S.conv=c.data; S.disp=d.data; S.parametri=p.data; S.aggiornamenti=agg.data; S.statoGiudici=sg.data; S.corsi=ko.data; S.presenze=pr.data;
+  await loadNotifiche();
   S.giudice = S.giudici.find(x=>x.id===S.profilo.giudice_id)||null;
   if(S.comitato){ const pr=await q('profili'); if(!pr.error) S.profili=pr.data; }
   if(!S.annoSportivo) S.annoSportivo = annoSportivoDi(today());
@@ -372,6 +502,11 @@ async function loadAll(){
   S.loaded=true;
 }
 async function reload(){ await loadAll(); render(); }
+async function loadNotifiche(){
+  const [n, pf] = await Promise.all([ sb.from('notifiche').select('*').order('created_at',{ascending:false}).limit(60), sb.from('notifiche_preferenze').select('*').eq('user_id',S.user.id).maybeSingle() ]);
+  if(!n.error) S.notifiche=n.data; if(!pf.error) S.pref=pf.data; updateBell();
+}
+function updateBell(){ const n=S.notifiche.filter(x=>!x.letta).length; const e=$('bell-cnt'); if(e){ e.textContent=n; e.classList.toggle('hidden',!n); } }
 function param(anno){ return S.parametri.find(p=>p.anno_sportivo===(anno||S.annoSportivo)) || S.parametri[0] || {tariffa_km:0,gettone_regionale:0,gettone_nazionale:0,gettone_coordinatore:0,modalita_default:'km_spese',min_servizi_12m:1,min_aggiornamenti_12m:1,mesi_inattivita_max:24,eta_min:18,eta_max:75}; }
 
 /* ===================== NAVIGAZIONE ===================== */
@@ -479,7 +614,7 @@ function homeComitato(){
   const portaleSenzaConv = S.gare.filter(g=>g.origine==='swen' && g.stato==='programmata' && g.data_inizio>=oggi && g.giudice_swen && matchGiudiceSwen(g.giudice_swen) && !convDiGara(g.id).some(c=>['proposta','accettata','confermata'].includes(c.stato)));
   const corsiProssimi = S.corsi.filter(k=>k.stato==='programmato' && k.data>=oggi);
   const conCandidati = scoperte.filter(g=>dispDiGara(g.id).some(d=>d.stato==='disponibile'));
-  return `
+  return `${pushBannerHtml()}
   <div class="kpis">
     <div class="kpi ${scoperte.length?'err':'ok'}" onclick="S.filtri.gare={scoperte:true};go('gare')" style="cursor:pointer"><b>${scoperte.length}</b><span>Gare future scoperte${conCandidati.length?' · '+conCandidati.length+' con disponibili':''}</span></div>
     <div class="kpi ${proposte.length?'warn':''}"><b>${proposte.length}</b><span>Convocazioni in attesa di risposta</span></div>
@@ -508,7 +643,7 @@ function homeGiudice(){
   const rimb=mie.filter(c=>['svolta','confermata'].includes(c.stato) && c.data_inizio<oggi && (!c.rimborso_stato||c.rimborso_stato==='da_compilare'));
   const sem=semaforoGiudice(S.giudice);
   const daDichiarare=S.gare.filter(g=>g.stato==='programmata' && g.data_inizio>=oggi && !dispDiGara(g.id).some(d=>d.giudice_id===S.giudice.id) && !mie.some(c=>c.gara_id===g.id));
-  return `
+  return `${pushBannerHtml()}
   ${sem.cls!=='ok'?`<div class="alert ${sem.cls==='grey'?'warn':sem.cls}"><b>Requisiti</b><br>${sem.msgs.map(esc).join('<br>')}</div>`:''}
   ${proposte.length?`<div class="card"><h3>Convocazioni da rispondere</h3>${proposte.map(c=>convCard(c)).join('')}</div>`:''}
   ${(()=>{ const inv=S.corsi.filter(k=>k.stato==='programmato'&&k.data>=oggi&&(miaPresenza(k.id)||{}).stato==='invitato'); return inv.length?`<div class="card"><h3>Aggiornamenti: dichiara se partecipi</h3>${inv.map(corsoItem).join('')}</div>`:''; })()}
@@ -925,6 +1060,7 @@ VIEWS.profilo = ()=>{
   <div class="card"><div class="section-title" style="margin-top:0"><h3>Aggiornamenti tecnici</h3><button class="btn sm" onclick="S.filtri.gareSez='aggiornamenti';go('gare')">Eventi in programma</button></div>
     <p class="small muted">Le presenze vengono registrate dal comitato al termine di ogni evento.</p>
     ${listaAggiornamenti(g.id)}</div>
+  <div class="card"><div class="section-title" style="margin-top:0"><h3>Notifiche</h3><button class="btn sm" onclick="prefNotificheDlg()">Preferenze</button></div>${statoPushHtml()}</div>
   <p class="center small muted">GestionaleGDG v${APP_VER}</p>`;
 };
 function listaAggiornamenti(jid){
@@ -1023,6 +1159,7 @@ VIEWS.impostazioni = ()=>{
     <p class="small muted">Un account nuovo nasce <b>ospite</b> e non vede nulla. Per attivarlo assegna il ruolo (Giudice o Comitato) e il profilo giudice collegato; l'app suggerisce il giudice con la stessa email. Il ruolo "Comitato" dà accesso completo.</p>
     ${sortBy(S.profili, pr=>(pr.ruolo==='ospite'?'0':'1')+(pr.email||'')).map(pr=>{ const g=S.giudici.find(x=>x.id===pr.giudice_id); const sug=!g&&pr.email?S.giudici.find(x=>x.email&&x.email.toLowerCase()===pr.email.toLowerCase()):null;
       return `<div class="list-item"><div class="body"><div class="t">${esc(pr.email||'')} ${pr.ruolo==='comitato'?pill('comitato','navy'):pr.ruolo==='ospite'?pill('da attivare','err'):pill('giudice')}</div><div class="s">${g?'→ '+esc(nomeG(g)):(sug?'<span style="color:var(--warn)">non collegato · suggerito: '+esc(nomeG(sug))+'</span>':'<span style="color:var(--warn)">non collegato a un giudice</span>')}</div></div><button class="btn sm ${pr.ruolo==='ospite'?'primary':''}" onclick="profiloForm('${pr.id}')">${pr.ruolo==='ospite'?'Attiva':'Modifica'}</button></div>`; }).join('')}</div>
+  <div class="card"><div class="section-title" style="margin-top:0"><h3>Notifiche</h3><button class="btn sm" onclick="prefNotificheDlg()">Le mie preferenze</button></div>${statoPushHtml()}<p class="small muted">Push ed email partono dalla funzione "notifica" (vedi README: chiavi VAPID, webhook, mittente email). Le notifiche in app funzionano sempre.</p></div>
   <div class="card"><h3>Guida e versione</h3><p class="small muted">La guida in linea (pulsante ? in alto) descrive ogni funzione e riporta le novità di ogni versione.</p><button class="btn" onclick="openGuide()">Apri la guida</button> <span class="small muted">GestionaleGDG v${APP_VER}</span></div>`;
 };
 function parametriForm(){
@@ -1080,6 +1217,8 @@ async function syncLog(){
    (1) la sezione GUIDE interessata, (2) CHANGELOG con la versione, (3) APP_VER e CACHE in sw.js.
    r: 'tutti' | 'comitato' | 'giudice'  — per chi è rilevante la sezione. */
 const CHANGELOG = [
+  {v:'1.6.1', d:'2026-09-18', items:['Al primo accesso l\'app spiega come attivare le notifiche, con i passaggi specifici per iPhone/iPad (installazione nella schermata Home) o per Android e computer, e ripropone la richiesta a ogni accesso finché non sono attive, salvo "Non chiedermelo più".']},
+  {v:'1.6.0', d:'2026-09-18', items:['Notifiche: campanella in alto con l\'elenco degli avvisi (convocazioni, conferme, inviti ai corsi, rimborsi, promemoria; per il comitato risposte dei giudici, disponibilità, rimborsi da approvare, nuovi account), aggiornata in tempo reale ad app aperta.','Notifiche push ad app chiusa (Android, computer, iPhone con app installata) attivabili per dispositivo; email opzionale; preferenze per categoria.','I dati si aggiornano da soli quando cambiano (nuove convocazioni, disponibilità, presenze) senza ricaricare la pagina.']},
   {v:'1.5.0', d:'2026-09-17', items:['Candidature: in Home del comitato compare la lista delle gare scoperte con i giudici disponibili e il pulsante Assegna.','Il giudice può allegare una nota alla propria disponibilità (es. "solo come affiancamento"), visibile al comitato in fase di assegnazione e nella scheda gara.','Quando una gara viene coperta da altri, il giudice lo vede ("Assegnata ad altri giudici") invece di un pulsante ancora attivo.']},
   {v:'1.4.0', d:'2026-09-17', items:['Corsi e aggiornamenti gestiti dal comitato (scheda Gare → Corsi e aggiornamenti): creazione dell\'evento con invito automatico a tutti i giudici attivi, dichiarazione di partecipazione da parte dei giudici, registrazione delle presenze da parte del comitato. I giudici non inseriscono più aggiornamenti da soli; il requisito dei 12 mesi si calcola dalle presenze (più eventuali aggiornamenti esterni registrati dal comitato).','Riconciliazione con arco.swen più prudente: per le gare future non crea convocazioni (designa il comitato), conferma solo le proposte con cui il portale concorda e segnala il resto con il pulsante Convoca; per le gare passate segna "svolta" solo se il portale ha la classifica calcolata.','Sicurezza: le funzioni di riconciliazione e invito non sono più eseguibili senza login.','Libreria Supabase fissata a una versione precisa; data "oggi" calcolata in ora locale.']},
   {v:'1.3.0', d:'2026-09-17', items:['Nuovo stato "ospite": un account appena registrato non ha accesso a nessun dato finché il comitato non lo attiva (ruolo + profilo giudice) dalle impostazioni; il collegamento automatico per email è sostituito da un suggerimento da confermare.','Schermata di attesa per gli account non attivati; avviso in Home per il comitato con le email da attivare.']},
@@ -1104,6 +1243,12 @@ const GUIDE = [
   <b>iPhone/iPad (Safari)</b>: pulsante Condividi → "Aggiungi alla schermata Home".<br>
   <b>Computer (Chrome/Edge)</b>: icona di installazione nella barra dell'indirizzo.</p>
   <p>L'app installata si aggiorna da sola alla prima apertura con connessione. Le schermate già viste restano consultabili anche senza rete, ma per salvare qualsiasi modifica serve la connessione.</p>`},
+ {cat:'Per iniziare', r:'tutti', t:'Notifiche: in app, push ed email', c:`
+  <p>Ogni evento che ti riguarda genera una notifica: la trovi nella <b>campanella</b> in alto (con il numero di quelle da leggere) e toccandola si apre direttamente la gara, il corso o il rimborso. Con l'app aperta arriva in tempo reale, senza ricaricare.</p>
+  <p><b>Push (app chiusa)</b>: dalla campanella o dal Profilo premi <b>Attiva su questo dispositivo</b> e accetta il permesso del browser. Vale per dispositivo: ripetilo su telefono e computer. Su <b>iPhone/iPad</b> funziona solo con l'app installata nella schermata Home (Safari → Condividi → Aggiungi alla schermata Home) e aperta da lì. Se il permesso è stato negato, va riattivato dalle impostazioni del browser per il sito.</p>
+  <p><b>Email</b>: in ⚙ Preferenze notifiche puoi attivare l'invio via email al tuo indirizzo, utile se non usi le push. Sempre in Preferenze scegli quali categorie ricevere: convocazioni, inviti ai corsi, rimborsi, promemoria (3 giorni prima di una gara confermata, il giorno prima di un corso) e, per il comitato, le risposte dei giudici, le disponibilità sulle gare scoperte, i rimborsi da approvare e i nuovi account.</p>
+  <p>"Invia una prova" crea una notifica di test: chiudi l'app e verifica che arrivi. La consegna delle push dipende dal telefono (risparmio energetico, browser): la campanella resta il riferimento certo.</p>
+  <p><b>Al primo accesso</b> (e a ogni accesso successivo finché non le attivi) l'app mostra una finestra con i passaggi per il tuo dispositivo; "Non chiedermelo più" la disattiva, e potrai sempre attivare le notifiche dalla campanella.</p>`},
  {cat:'Per iniziare', r:'tutti', t:'Ruoli: comitato e giudice', c:`
   <p><b>Comitato</b>: vede e gestisce tutto: giudici, gare, convocazioni, rimborsi, parametri, report, sincronizzazioni e account. Ha le schede Home, Gare, Giudici, Rimborsi, Report e l'icona ⚙ Impostazioni.</p>
   <p><b>Giudice</b>: dichiara le proprie disponibilità, risponde alle convocazioni, compila i rimborsi, carica i referti, aggiorna i propri contatti e registra gli aggiornamenti tecnici. Ha le schede Home, Gare, Convocazioni, Profilo.</p>

@@ -481,6 +481,11 @@ create trigger rimborsi_guard_trg before insert or update on rimborsi
 -- 3. VISTE PER REPORT
 -- ---------------------------------------------------------------------
 
+-- Le viste vengono ricreate da zero: con CREATE OR REPLACE non si possono aggiungere colonne alle tabelle sottostanti (c.* / ga.*)
+drop view if exists v_copertura_gare;
+drop view if exists v_stato_giudici;
+drop view if exists v_convocazioni;
+
 -- Convocazioni con dati gara e giudice
 create or replace view v_convocazioni as
 select c.*, g.cognome, g.nome, g.qualifica, g.in_affiancamento,
@@ -753,3 +758,221 @@ revoke execute on function nome_norm(text) from anon;
 --  Gli account esistenti con ruolo 'giudice' non collegati a un giudice vengono riportati a 'ospite'.
 -- =====================================================================
 update profili set ruolo = 'ospite' where ruolo = 'giudice' and giudice_id is null;
+
+-- =====================================================================
+--  AGGIORNAMENTO v1.5 — notifiche (in app, push, email)
+--  Ogni evento rilevante inserisce una riga in "notifiche" per ogni destinatario.
+--  L'app la mostra subito (Realtime); un Database Webhook su INSERT chiama la
+--  Edge Function "notifica" che invia push (Web Push/VAPID) ed email.
+-- =====================================================================
+
+create table if not exists notifiche (
+  id            uuid primary key default gen_random_uuid(),
+  user_id       uuid not null references auth.users (id) on delete cascade,
+  tipo          text not null,                -- convocazione | corso | rimborso | promemoria | comitato | sistema
+  titolo        text not null,
+  corpo         text,
+  dati          jsonb,                        -- es. {"gara_id":"...","corso_id":"...","tab":"convocazioni"}
+  letta         boolean not null default false,
+  inviata_push  boolean,
+  inviata_email boolean,
+  created_at    timestamptz not null default now()
+);
+create index if not exists notifiche_user_idx on notifiche (user_id, letta, created_at desc);
+
+create table if not exists push_iscrizioni (
+  id          uuid primary key default gen_random_uuid(),
+  user_id     uuid not null references auth.users (id) on delete cascade,
+  endpoint    text not null unique,
+  p256dh      text not null,
+  auth        text not null,
+  user_agent  text,
+  created_at  timestamptz not null default now(),
+  ultimo_uso  timestamptz
+);
+
+create table if not exists notifiche_preferenze (
+  user_id     uuid primary key references auth.users (id) on delete cascade,
+  push        boolean not null default true,
+  email       boolean not null default false,
+  eventi      jsonb not null default '{"convocazione":true,"corso":true,"rimborso":true,"promemoria":true,"comitato":true}'::jsonb,
+  updated_at  timestamptz not null default now()
+);
+
+alter table notifiche            enable row level security;
+alter table push_iscrizioni      enable row level security;
+alter table notifiche_preferenze enable row level security;
+
+drop policy if exists notif_select on notifiche;
+drop policy if exists notif_update on notifiche;
+drop policy if exists notif_delete on notifiche;
+drop policy if exists push_all     on push_iscrizioni;
+drop policy if exists pref_all     on notifiche_preferenze;
+create policy notif_select on notifiche for select to authenticated using (user_id = auth.uid());
+create policy notif_update on notifiche for update to authenticated using (user_id = auth.uid()) with check (user_id = auth.uid());
+create policy notif_delete on notifiche for delete to authenticated using (user_id = auth.uid());
+create policy push_all on push_iscrizioni for all to authenticated using (user_id = auth.uid()) with check (user_id = auth.uid());
+create policy pref_all on notifiche_preferenze for all to authenticated using (user_id = auth.uid()) with check (user_id = auth.uid());
+
+-- Inserisce una notifica per un giudice (se ha un account) o per tutti i membri del comitato
+create or replace function notifica_giudice(p_giudice uuid, p_tipo text, p_titolo text, p_corpo text, p_dati jsonb default null) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  insert into notifiche (user_id, tipo, titolo, corpo, dati)
+  select p.id, p_tipo, p_titolo, p_corpo, p_dati from profili p
+   where p.giudice_id = p_giudice and p.ruolo in ('giudice','comitato');
+end $$;
+create or replace function notifica_comitato(p_tipo text, p_titolo text, p_corpo text, p_dati jsonb default null, p_escludi uuid default null) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  insert into notifiche (user_id, tipo, titolo, corpo, dati)
+  select p.id, p_tipo, p_titolo, p_corpo, p_dati from profili p
+   where p.ruolo = 'comitato' and (p_escludi is null or p.id <> p_escludi);
+end $$;
+revoke execute on function notifica_giudice(uuid,text,text,text,jsonb) from public, anon, authenticated;
+revoke execute on function notifica_comitato(text,text,text,jsonb,uuid) from public, anon, authenticated;
+
+-- Convocazioni: proposta/conferma/annullamento → giudice; risposta del giudice → comitato
+create or replace function notif_convocazioni() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare ga gare%rowtype; g giudici%rowtype; d jsonb; quando text;
+begin
+  select * into ga from gare where id = new.gara_id;
+  select * into g  from giudici where id = new.giudice_id;
+  d := jsonb_build_object('gara_id', new.gara_id, 'convocazione_id', new.id);
+  quando := to_char(ga.data_inizio, 'DD/MM/YYYY');
+  if tg_op = 'INSERT' then
+    if new.stato = 'proposta' then
+      perform notifica_giudice(new.giudice_id, 'convocazione', 'Nuova convocazione: ' || ga.titolo, quando || ' · rispondi dall''app (accetto / rifiuto)', d || '{"tab":"convocazioni"}');
+    elsif new.stato = 'confermata' then
+      perform notifica_giudice(new.giudice_id, 'convocazione', 'Convocazione confermata: ' || ga.titolo, quando || ' · ' || coalesce(ga.comune,''), d || '{"tab":"convocazioni"}');
+    end if;
+  elsif new.stato is distinct from old.stato then
+    if new.stato = 'confermata' then
+      perform notifica_giudice(new.giudice_id, 'convocazione', 'Convocazione confermata: ' || ga.titolo, quando || ' · ' || coalesce(ga.comune,''), d || '{"tab":"convocazioni"}');
+    elsif new.stato = 'annullata' then
+      perform notifica_giudice(new.giudice_id, 'convocazione', 'Convocazione annullata: ' || ga.titolo, quando, d || '{"tab":"convocazioni"}');
+    elsif new.stato in ('accettata','rifiutata') then
+      perform notifica_comitato('comitato', g.cognome || ' ' || g.nome || ' ha ' || case when new.stato='accettata' then 'accettato' else 'rifiutato' end || ': ' || ga.titolo,
+                                quando || case when new.stato='rifiutata' then ' · motivo: ' || coalesce(new.motivo_rifiuto,'') else '' end, d, auth.uid());
+    end if;
+  end if;
+  return new;
+end $$;
+drop trigger if exists notif_convocazioni_trg on convocazioni;
+create trigger notif_convocazioni_trg after insert or update on convocazioni
+  for each row execute function notif_convocazioni();
+
+-- Corsi: invito → giudice
+create or replace function notif_presenze() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare k corsi%rowtype;
+begin
+  select * into k from corsi where id = new.corso_id;
+  if tg_op = 'INSERT' and k.stato = 'programmato' and k.data >= current_date then
+    perform notifica_giudice(new.giudice_id, 'corso', 'Invito: ' || k.titolo, to_char(k.data,'DD/MM/YYYY') || coalesce(' · ' || k.luogo,'') || ' · dichiara se partecipi',
+                             jsonb_build_object('corso_id', k.id, 'tab', 'gare', 'sez', 'aggiornamenti'));
+  end if;
+  return new;
+end $$;
+drop trigger if exists notif_presenze_trg on corsi_presenze;
+create trigger notif_presenze_trg after insert on corsi_presenze
+  for each row execute function notif_presenze();
+
+-- Rimborsi: compilato → comitato; approvato/liquidato → giudice
+create or replace function notif_rimborsi() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare c convocazioni%rowtype; ga gare%rowtype; g giudici%rowtype;
+begin
+  if tg_op = 'UPDATE' and new.stato is not distinct from old.stato then return new; end if;
+  select * into c from convocazioni where id = new.convocazione_id;
+  select * into ga from gare where id = c.gara_id;
+  select * into g from giudici where id = c.giudice_id;
+  if new.stato = 'compilato' then
+    perform notifica_comitato('comitato', 'Rimborso da approvare: ' || g.cognome || ' ' || g.nome, ga.titolo || ' · ' || replace(to_char(new.totale,'FM999990.00'),'.',',') || ' €', jsonb_build_object('tab','rimborsi','convocazione_id', c.id), auth.uid());
+  elsif new.stato in ('approvato','liquidato') then
+    perform notifica_giudice(c.giudice_id, 'rimborso', 'Rimborso ' || new.stato || ': ' || ga.titolo, replace(to_char(new.totale,'FM999990.00'),'.',',') || ' €', jsonb_build_object('tab','convocazioni','convocazione_id', c.id));
+  end if;
+  return new;
+end $$;
+drop trigger if exists notif_rimborsi_trg on rimborsi;
+create trigger notif_rimborsi_trg after insert or update on rimborsi
+  for each row execute function notif_rimborsi();
+
+-- Disponibilità su gara scoperta → comitato
+create or replace function notif_disponibilita() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare ga gare%rowtype; g giudici%rowtype; conf int;
+begin
+  if new.stato <> 'disponibile' or (tg_op = 'UPDATE' and old.stato = 'disponibile') then return new; end if;
+  select * into ga from gare where id = new.gara_id;
+  select * into g from giudici where id = new.giudice_id;
+  select count(*) into conf from convocazioni where gara_id = ga.id and stato in ('confermata','svolta') and ruolo <> 'affiancamento';
+  if ga.stato = 'programmata' and ga.data_inizio >= current_date and conf < ga.fabbisogno_giudici then
+    perform notifica_comitato('comitato', 'Disponibile: ' || g.cognome || ' ' || g.nome, ga.titolo || ' · ' || to_char(ga.data_inizio,'DD/MM/YYYY') || coalesce(' · ' || new.note, ''), jsonb_build_object('gara_id', ga.id));
+  end if;
+  return new;
+end $$;
+drop trigger if exists notif_disponibilita_trg on disponibilita;
+create trigger notif_disponibilita_trg after insert or update on disponibilita
+  for each row execute function notif_disponibilita();
+
+-- Nuovo account → comitato
+create or replace function notif_profili() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  perform notifica_comitato('comitato', 'Nuovo account da attivare', coalesce(new.email,''), '{"tab":"impostazioni"}'::jsonb);
+  return new;
+end $$;
+drop trigger if exists notif_profili_trg on profili;
+create trigger notif_profili_trg after insert on profili
+  for each row execute function notif_profili();
+
+-- Promemoria: gare confermate tra 3 giorni e corsi domani (da eseguire una volta al giorno)
+create or replace function invia_promemoria() returns int
+language plpgsql security definer set search_path = public as $$
+declare n int := 0; r record;
+begin
+  for r in select c.giudice_id, c.id as cid, ga.id as gid, ga.titolo, ga.data_inizio, ga.comune, ga.indirizzo
+             from convocazioni c join gare ga on ga.id = c.gara_id
+            where c.stato = 'confermata' and ga.data_inizio = current_date + 3 loop
+    perform notifica_giudice(r.giudice_id, 'promemoria', 'Tra 3 giorni: ' || r.titolo, to_char(r.data_inizio,'DD/MM/YYYY') || coalesce(' · ' || r.comune,'') || coalesce(', ' || r.indirizzo,''), jsonb_build_object('gara_id', r.gid, 'tab', 'convocazioni'));
+    n := n + 1;
+  end loop;
+  for r in select p.giudice_id, k.id as kid, k.titolo, k.data, k.luogo
+             from corsi_presenze p join corsi k on k.id = p.corso_id
+            where p.stato in ('partecipa','invitato') and k.stato = 'programmato' and k.data = current_date + 1 loop
+    perform notifica_giudice(r.giudice_id, 'promemoria', 'Domani: ' || r.titolo, coalesce(r.luogo,''), jsonb_build_object('corso_id', r.kid, 'tab', 'gare', 'sez', 'aggiornamenti'));
+    n := n + 1;
+  end loop;
+  return n;
+end $$;
+revoke execute on function invia_promemoria() from public, anon, authenticated;
+
+-- Pianificazione giornaliera con pg_cron (se l'estensione è disponibile: Supabase → Database → Extensions → pg_cron)
+do $$
+begin
+  create extension if not exists pg_cron;
+  perform cron.unschedule(jobid) from cron.job where jobname = 'gdg_promemoria';
+  perform cron.schedule('gdg_promemoria', '0 7 * * *', $cron$ select invia_promemoria(); $cron$);   -- ore 07:00 UTC = 09:00 (ora legale) / 08:00 italiane
+exception when others then
+  raise notice 'pg_cron non disponibile: i promemoria giornalieri non sono pianificati (%).', sqlerrm;
+end $$;
+
+-- Realtime: l'app riceve subito le notifiche e i cambi sui dati (RLS applicata)
+do $$
+declare t text;
+begin
+  foreach t in array array['notifiche','convocazioni','disponibilita','corsi','corsi_presenze','rimborsi','gare'] loop
+    begin
+      execute format('alter publication supabase_realtime add table %I', t);
+    exception when duplicate_object then null;
+             when others then raise notice 'realtime non attivato per %: %', t, sqlerrm;
+    end;
+  end loop;
+end $$;
+
+-- Pulizia: notifiche più vecchie di 90 giorni
+create or replace function pulisci_notifiche() returns void language sql security definer set search_path = public as $$
+  delete from notifiche where created_at < now() - interval '90 days';
+$$;

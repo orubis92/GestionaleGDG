@@ -28,6 +28,8 @@
     referti:[{id:'f1',convocazione_id:'c4',storage_path:'c4/x.pdf',nome_file:'referto.pdf',created_at:'2026-03-16T10:00:00Z'}],
     parametri:[{anno_sportivo:'2026/2027',tariffa_km:0.25,gettone_regionale:20,gettone_nazionale:40,gettone_coordinatore:60,modalita_default:'km_spese',min_servizi_12m:1,min_aggiornamenti_12m:1,mesi_inattivita_max:24,eta_min:18,eta_max:75}],
     sync_log:[],
+    notifiche:[{id:'n1',user_id:'u1',tipo:'comitato',titolo:'Rossi Mario ha accettato: Gara Regionale 40 Round',corpo:'11/10/2026',dati:{gara_id:'ga2'},letta:false,created_at:'2026-09-18T08:00:00Z'},{id:'n2',user_id:'u2',tipo:'convocazione',titolo:'Nuova convocazione: Gara Regionale 40 Round',corpo:'11/10/2026 · rispondi dall\'app',dati:{gara_id:'ga2',tab:'convocazioni'},letta:false,created_at:'2026-09-18T07:00:00Z'},{id:'n3',user_id:'u2',tipo:'corso',titolo:'Invito: Aggiornamento annuale',corpo:'08/11/2026',dati:{corso_id:'k1',tab:'gare',sez:'aggiornamenti'},letta:true,created_at:'2026-09-17T07:00:00Z'}],
+    notifiche_preferenze:[], push_iscrizioni:[],
     corsi:[{id:'k1',titolo:'Aggiornamento annuale GdG 2026/2027',tipo:'aggiornamento',data:'2026-11-08',ore:4,luogo:'Cremona',obbligatorio:true,stato:'programmato'},{id:'k2',titolo:'Riunione tecnica indoor',tipo:'riunione',data:'2026-09-05',ore:2,luogo:'online',obbligatorio:false,stato:'svolto'}],
     corsi_presenze:[{id:'p1',corso_id:'k1',giudice_id:'g1',stato:'partecipa'},{id:'p2',corso_id:'k1',giudice_id:'g2',stato:'invitato'},{id:'p3',corso_id:'k1',giudice_id:'g3',stato:'non_partecipa'},{id:'p4',corso_id:'k2',giudice_id:'g1',stato:'presente'},{id:'p5',corso_id:'k2',giudice_id:'g2',stato:'assente'}]
   };
@@ -41,6 +43,7 @@
     const st={filters:[],op:'select',payload:null,single:false,maybe:false,order:null};
     const run=()=>{
       let rows=(view(table)||[]).slice();
+      if(table==='notifiche' && session) rows=rows.filter(r=>r.user_id===session.user.id);
       st.filters.forEach(f=>{ if(f.t==='eq') rows=rows.filter(r=>r[f.k]===f.v); if(f.t==='in') rows=rows.filter(r=>f.v.includes(r[f.k])); if(f.t==='not') rows=rows.filter(r=>r[f.k]!=null); });
       if(st.op==='insert'){ const recs=(Array.isArray(st.payload)?st.payload:[st.payload]).map(r=>({id:uid(table),created_at:new Date().toISOString(),...r})); T[table].push(...recs); rows=recs; }
       if(st.op==='update'){ rows.forEach(r=>{ const t=T[table].find(x=>x.id===r.id); Object.assign(t,st.payload); }); }
@@ -64,6 +67,8 @@
   window.supabase={ createClient(){ return {
     auth:{ getSession:async()=>({data:{session}}), onAuthStateChange(){}, signInWithPassword:async({email})=>{ const u=users[email]; if(!u) return {error:{message:'Invalid login credentials'}}; session={user:u}; return {data:{user:u},error:null}; }, signUp:async({email})=>({data:{user:{id:'u9',email},session:null},error:null}), resetPasswordForEmail:async()=>({error:null}), signOut:async()=>{session=null;}, updateUser:async()=>({error:null}) },
     from:q,
+    channel(){ const ch={ on(){ return ch; }, subscribe(){ return ch; } }; return ch; },
+    removeChannel(){},
     rpc:async(name,args)=>{ if(name==='invita_tutti'){ const n=T.giudici.filter(g=>g.attivo&&!T.corsi_presenze.some(p=>p.corso_id===args.p_corso&&p.giudice_id===g.id)).length; T.giudici.filter(g=>g.attivo).forEach(g=>{ if(!T.corsi_presenze.some(p=>p.corso_id===args.p_corso&&p.giudice_id===g.id)) T.corsi_presenze.push({id:uid('p'),corso_id:args.p_corso,giudice_id:g.id,stato:'invitato'}); }); return {data:n,error:null}; } return {data:{convocazioni_create:1,confermate:0,svolte:1,gare_chiuse:0,future_senza_convocazione:1,chiuse_automaticamente:[],errori:['06/09/2026 Gara affiancato solo — BIANCHI LUCA: art. 2']},error:null}; },
     storage:{ from(){ return { upload:async()=>({error:null}), download:async()=>({data:new Blob(['x']),error:null}), remove:async()=>({error:null}) }; } },
     functions:{ invoke:async(name,{body})=>({data:{messaggio:'Mock '+body.tipo,inseriti:3,aggiornati:1,segnalati:0,note:['nota di prova']},error:null}) }

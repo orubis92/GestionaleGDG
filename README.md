@@ -7,6 +7,7 @@ Struttura del repository:
 - `index.html`, `manifest.json`, `sw.js`, `icons/` — l'app (singolo file HTML, installabile come PWA)
 - `supabase/schema.sql` — database, regole e permessi (da eseguire una volta su Supabase)
 - `supabase/functions/sync/index.ts` — funzione di sincronizzazione con arco.swen (calendario gare e albo giudici) e riconciliazione automatica delle convocazioni
+- `supabase/functions/notifica/index.ts` — funzione che invia push ed email per ogni notifica generata dal database
 - `Documentazione/` — regolamenti di riferimento
 - `test/` — test automatico dell'interfaccia con un finto Supabase in memoria
 
@@ -35,6 +36,26 @@ supabase functions deploy sync
 In alternativa, dal Dashboard: **Edge Functions → Deploy a new function → Via Editor**, nome `sync`, incolla il contenuto di `supabase/functions/sync/index.ts` e pubblica.
 
 La funzione usa automaticamente le chiavi del progetto (`SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`): non serve configurare altro. Può essere chiamata solo da un utente con ruolo comitato.
+
+### 2b. Notifiche push ed email (facoltativo ma consigliato)
+
+Le notifiche **in app** (campanella, aggiornamento in tempo reale) funzionano già con lo schema, senza altro. Per riceverle anche **ad app chiusa** (push) e **via email**:
+
+1. **Chiavi VAPID** (una volta sola). Sul tuo computer, con Node installato:
+   ```bash
+   npx web-push generate-vapid-keys
+   ```
+   Ottieni una *Public Key* e una *Private Key*. La pubblica va in `index.html`, costante `CONFIG.VAPID_PUBLIC_KEY`; la privata NON va mai nel repository.
+2. **Segreti della funzione**: Supabase → Edge Functions → *Secrets* (oppure `supabase secrets set`):
+   - `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` = `mailto:` seguito dall'email del comitato
+   - `APP_URL` = `https://orubis92.github.io/GestionaleGDG/`
+   - per le email, uno dei due: `BREVO_API_KEY` + `EMAIL_FROM` (mittente verificato in Brevo, piano gratuito 300 email/giorno) oppure `RESEND_API_KEY` + `EMAIL_FROM` (richiede un dominio verificato).
+3. **Pubblica la funzione** `notifica`: `supabase functions deploy notifica` (o dal Dashboard, incollando `supabase/functions/notifica/index.ts`).
+4. **Webhook**: Supabase → Database → *Webhooks* → *Create a new hook*: nome `notifica`, tabella `notifiche`, evento **Insert**, tipo **Supabase Edge Functions**, funzione `notifica`; lascia l'header Authorization con la service role key che il Dashboard propone. Da questo momento ogni notifica inserita dal database viene spedita.
+5. **Promemoria giornalieri** (3 giorni prima di una gara confermata, il giorno prima di un corso): Supabase → Database → *Extensions* → attiva **pg_cron**, poi riesegui `schema.sql` (pianifica `invia_promemoria()` ogni giorno alle 07:00 UTC). Senza pg_cron tutto il resto funziona; mancano solo i promemoria.
+6. **Realtime**: lo schema aggiunge le tabelle alla pubblicazione `supabase_realtime`. Se in Database → *Replication* le tabelle `notifiche`, `convocazioni`, `disponibilita`, `corsi`, `corsi_presenze`, `rimborsi`, `gare`, `profili` non risultano attive, attivale da lì.
+
+Poi, nell'app: campanella → **Attiva su questo dispositivo** → **Invia una prova**. Su iPhone/iPad le push arrivano solo con l'app aggiunta alla schermata Home.
 
 ### 3. Pubblicazione dell'app (GitHub Pages)
 
@@ -69,7 +90,7 @@ Modifica `index.html`, aggiorna `APP_VER` e la voce "Novità" nella guida, aggio
 
 Per modifiche al database aggiungi le istruzioni in fondo a `supabase/schema.sql` (lo script è idempotente) ed eseguilo di nuovo nell'SQL Editor. **Dopo ogni aggiornamento dello schema va anche ripubblicata la funzione `sync`** se è cambiata (`supabase functions deploy sync` o incolla di nuovo il file dal Dashboard).
 
-Storico aggiornamenti dello schema: v1.4 (tabelle `corsi` e `corsi_presenze`, funzione `invita_tutti`, `riconcilia_swen` prudente, `is_comitato`/`is_attivo` che escludono il ruolo anon, revoca dell'esecuzione delle funzioni ad anon, colonna `gare.swen_classifica`, scrittura su `aggiornamenti` solo comitato); v1.2 (albo arco.swen, colonne `swen_id`/`tessera_numero`/`tessera_tipo` su `giudici`, funzione `riconcilia_swen`); v1.3 (ruolo `ospite` predefinito per i nuovi account, funzione `is_attivo()` nelle policy, nessun collegamento automatico per email).
+Storico aggiornamenti dello schema: v1.5 (tabelle `notifiche`, `push_iscrizioni`, `notifiche_preferenze`; trigger che generano le notifiche su convocazioni, presenze ai corsi, rimborsi, disponibilità, nuovi account; `invia_promemoria()` con pg_cron; tabelle aggiunte a `supabase_realtime`); v1.4 (tabelle `corsi` e `corsi_presenze`, funzione `invita_tutti`, `riconcilia_swen` prudente, `is_comitato`/`is_attivo` che escludono il ruolo anon, revoca dell'esecuzione delle funzioni ad anon, colonna `gare.swen_classifica`, scrittura su `aggiornamenti` solo comitato); v1.2 (albo arco.swen, colonne `swen_id`/`tessera_numero`/`tessera_tipo` su `giudici`, funzione `riconcilia_swen`); v1.3 (ruolo `ospite` predefinito per i nuovi account, funzione `is_attivo()` nelle policy, nessun collegamento automatico per email).
 
 ## Test locale dell'interfaccia
 
