@@ -46,6 +46,10 @@ create table if not exists giudici (
   created_at              timestamptz not null default now(),
   updated_at              timestamptz not null default now()
 );
+-- v1.2/v1.4: colonne aggiunte in seguito (devono esistere prima delle viste)
+alter table giudici add column if not exists swen_id        int unique;   -- id nell'albo di arco.swen (/api/albo)
+alter table giudici add column if not exists tessera_numero text;         -- NumeroTesseraTecnico
+alter table giudici add column if not exists tessera_tipo   text;         -- TipoTesseraTecnico (es. QUADRI COPERTURA RCT)
 create index if not exists giudici_cognome_idx on giudici (cognome, nome);
 create index if not exists giudici_email_idx on giudici (lower(email));
 
@@ -86,6 +90,7 @@ create table if not exists gare (
   created_at              timestamptz not null default now(),
   updated_at              timestamptz not null default now()
 );
+alter table gare    add column if not exists swen_classifica boolean;      -- v1.4
 create index if not exists gare_data_idx on gare (data_inizio);
 create index if not exists gare_anno_idx on gare (anno_sportivo);
 
@@ -235,6 +240,14 @@ create table if not exists parametri (
   updated_at            timestamptz not null default now()
 );
 
+-- Impostazioni generali (v1.6): es. codice_registrazione
+create table if not exists impostazioni (
+  chiave      text primary key,
+  valore      text,
+  updated_at  timestamptz not null default now()
+);
+alter table impostazioni enable row level security;
+
 -- Log delle sincronizzazioni
 create table if not exists sync_log (
   id          uuid primary key default gen_random_uuid(),
@@ -295,12 +308,24 @@ end $$;
 -- dall'app, che mostra come suggerimento l'eventuale giudice con la stessa email.
 create or replace function handle_new_user() returns trigger
 language plpgsql security definer set search_path = public as $$
+declare atteso text;
 begin
+  -- v1.6: codice di registrazione (se impostato dal comitato) passato dall'app nei metadati dell'utente
+  select valore into atteso from impostazioni where chiave = 'codice_registrazione';
+  if atteso is not null and atteso <> '' and coalesce(new.raw_user_meta_data->>'codice_registrazione','') <> atteso then
+    raise exception 'Codice di registrazione non valido';
+  end if;
   insert into profili (id, email, ruolo, giudice_id)
   values (new.id, new.email, 'ospite', null)
   on conflict (id) do nothing;
   return new;
 end $$;
+
+-- Verifica del codice prima della registrazione (chiamabile senza login; risponde solo vero/falso)
+create or replace function verifica_codice_registrazione(p_codice text) returns boolean
+language sql stable security definer set search_path = public as $$
+  select coalesce((select valore from impostazioni where chiave = 'codice_registrazione'), '') in ('', coalesce(p_codice,''));
+$$;
 
 drop trigger if exists on_auth_user_created on auth.users;
 create trigger on_auth_user_created
@@ -485,6 +510,13 @@ create trigger rimborsi_guard_trg before insert or update on rimborsi
 drop view if exists v_copertura_gare;
 drop view if exists v_stato_giudici;
 drop view if exists v_convocazioni;
+drop view if exists giudici_pubblici;
+
+-- v1.6: dati dei giudici visibili ai colleghi (solo l'essenziale per riconoscere la squadra di gara).
+-- Vista "definer" (bypassa le policy di giudici) ma filtrata su is_attivo(): gli ospiti non vedono nulla.
+create view giudici_pubblici as
+select id, cognome, nome, qualifica, in_affiancamento, attivo, provincia, regione, societa, swen_id, presente_in_albo
+from giudici where is_attivo();
 
 -- Convocazioni con dati gara e giudice
 create or replace view v_convocazioni as
@@ -495,7 +527,7 @@ select c.*, g.cognome, g.nome, g.qualifica, g.in_affiancamento,
        r.totale as rimborso_totale, r.stato as rimborso_stato,
        exists (select 1 from referti f where f.convocazione_id = c.id) as referto_caricato
 from convocazioni c
-join giudici g  on g.id  = c.giudice_id
+join giudici_pubblici g on g.id = c.giudice_id
 join gare    ga on ga.id = c.gara_id
 left join rimborsi r on r.convocazione_id = c.id;
 
@@ -530,9 +562,14 @@ select ga.*,
           and c.stato in ('proposta','accettata'))                                as convocazioni_in_corso,
        (select count(*) from disponibilita d where d.gara_id = ga.id and d.stato = 'disponibile') as disponibili,
        (select string_agg(g.cognome || ' ' || g.nome, ', ')
-          from convocazioni c join giudici g on g.id = c.giudice_id
+          from convocazioni c join giudici_pubblici g on g.id = c.giudice_id
          where c.gara_id = ga.id and c.stato in ('confermata','svolta'))          as giudici_confermati_nomi
 from gare ga;
+
+-- v1.6: le viste applicano le policy delle tabelle di chi interroga (prima giravano come proprietario e le ignoravano)
+alter view v_convocazioni   set (security_invoker = true);
+alter view v_stato_giudici  set (security_invoker = true);
+alter view v_copertura_gare set (security_invoker = true);
 
 -- ---------------------------------------------------------------------
 -- 4. ROW LEVEL SECURITY
@@ -559,9 +596,9 @@ begin
   end loop;
 end $$;
 
--- giudici: gli account attivati leggono (serve per vedere i colleghi in gara); gli ospiti non leggono nulla;
--- scrive il comitato; il giudice aggiorna la propria riga (campi protetti da trigger)
-create policy giudici_select on giudici for select to authenticated using (is_attivo());
+-- giudici: la riga completa (contatti, indirizzo, scadenze, note) la leggono solo il comitato e l'interessato;
+-- i colleghi passano dalla vista giudici_pubblici. Scrive il comitato; il giudice aggiorna la propria riga (campi protetti da trigger)
+create policy giudici_select on giudici for select to authenticated using (is_comitato() or id = my_giudice_id());
 create policy giudici_insert on giudici for insert to authenticated with check (is_comitato());
 create policy giudici_update on giudici for update to authenticated
   using (is_comitato() or id = my_giudice_id()) with check (is_comitato() or id = my_giudice_id());
@@ -615,6 +652,8 @@ create policy ref_insert on referti for insert to authenticated
   with check (is_comitato() or exists (select 1 from convocazioni c where c.id = convocazione_id and c.giudice_id = my_giudice_id()));
 create policy ref_delete on referti for delete to authenticated using (is_comitato());
 
+-- impostazioni: solo comitato (il codice di registrazione non deve essere leggibile dai giudici)
+create policy imp_all on impostazioni for all to authenticated using (is_comitato()) with check (is_comitato());
 -- parametri e log: lettura a tutti, scrittura comitato
 create policy par_select on parametri for select to authenticated using (is_attivo());
 create policy par_write  on parametri for all    to authenticated using (is_comitato()) with check (is_comitato());
@@ -665,10 +704,7 @@ on conflict (anno_sportivo) do nothing;
 --  AGGIORNAMENTO v1.2 — albo da arco.swen e riconciliazione automatica
 -- =====================================================================
 
-alter table giudici add column if not exists swen_id        int unique;   -- id nell'albo di arco.swen (/api/albo)
-alter table giudici add column if not exists tessera_numero text;         -- NumeroTesseraTecnico
-alter table giudici add column if not exists tessera_tipo   text;         -- TipoTesseraTecnico (es. QUADRI COPERTURA RCT)
-alter table gare    add column if not exists swen_classifica boolean;      -- v1.4
+-- (colonne v1.2/v1.4 aggiunte subito dopo la creazione delle tabelle, vedi sezione 1)
 
 -- Normalizza "COGNOME NOME" per il confronto con il campo Giudice di arco.swen
 create or replace function nome_norm(t text) returns text
@@ -979,3 +1015,33 @@ end $$;
 create or replace function pulisci_notifiche() returns void language sql security definer set search_path = public as $$
   delete from notifiche where created_at < now() - interval '90 days';
 $$;
+
+-- =====================================================================
+--  AGGIORNAMENTO v1.6 — privilegi delle funzioni
+--  Nessuna funzione del progetto è eseguibile senza login (PUBLIC/anon); gli utenti loggati
+--  eseguono solo ciò che serve all'app; le funzioni interne restano al solo contesto amministrativo.
+-- =====================================================================
+do $$
+declare r record;
+begin
+  for r in select p.oid::regprocedure as f from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+            where n.nspname = 'public' and p.prorettype <> 'trigger'::regtype loop
+    execute format('revoke execute on function %s from public, anon', r.f);
+    execute format('grant execute on function %s to authenticated', r.f);
+  end loop;
+end $$;
+-- funzioni interne: né anon né utenti
+revoke execute on function notifica_giudice(uuid,text,text,text,jsonb) from authenticated;
+revoke execute on function notifica_comitato(text,text,text,jsonb,uuid) from authenticated;
+revoke execute on function invia_promemoria() from authenticated;
+revoke execute on function pulisci_notifiche() from authenticated;
+-- l'unica funzione eseguibile senza login: verifica del codice di registrazione (vero/falso)
+grant execute on function verifica_codice_registrazione(text) to anon;
+-- le funzioni create in futuro nascono chiuse
+do $$
+begin
+  execute 'alter default privileges in schema public revoke execute on functions from public';
+  execute 'alter default privileges in schema public revoke execute on functions from anon';
+  execute 'alter default privileges for role postgres in schema public revoke execute on functions from anon';
+exception when others then raise notice 'default privileges: %', sqlerrm;
+end $$;

@@ -49,9 +49,10 @@ Le notifiche **in app** (campanella, aggiornamento in tempo reale) funzionano gi
 2. **Segreti della funzione**: Supabase → Edge Functions → *Secrets* (oppure `supabase secrets set`):
    - `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` = `mailto:` seguito dall'email del comitato
    - `APP_URL` = `https://orubis92.github.io/GestionaleGDG/`
+   - `WEBHOOK_SECRET` = una stringa lunga a piacere (es. generata con `openssl rand -hex 24`): autorizza il webhook
    - per le email, uno dei due: `BREVO_API_KEY` + `EMAIL_FROM` (mittente verificato in Brevo, piano gratuito 300 email/giorno) oppure `RESEND_API_KEY` + `EMAIL_FROM` (richiede un dominio verificato).
 3. **Pubblica la funzione** `notifica`: `supabase functions deploy notifica` (o dal Dashboard, incollando `supabase/functions/notifica/index.ts`).
-4. **Webhook**: Supabase → Database → *Webhooks* → *Create a new hook*: nome `notifica`, tabella `notifiche`, evento **Insert**, tipo **Supabase Edge Functions**, funzione `notifica`; lascia l'header Authorization con la service role key che il Dashboard propone. Da questo momento ogni notifica inserita dal database viene spedita.
+4. **Webhook**: Supabase → Database → *Webhooks* → *Create a new hook*: nome `notifica`, tabella `notifiche`, evento **Insert**, tipo **Supabase Edge Functions**, funzione `notifica`. Nella sezione *HTTP Headers* aggiungi `x-gdg-secret` con lo stesso valore di `WEBHOOK_SECRET` (l'header Authorization proposto dal Dashboard può restare). Da questo momento ogni notifica inserita dal database viene spedita.
 5. **Promemoria giornalieri** (3 giorni prima di una gara confermata, il giorno prima di un corso): Supabase → Database → *Extensions* → attiva **pg_cron**, poi riesegui `schema.sql` (pianifica `invia_promemoria()` ogni giorno alle 07:00 UTC). Senza pg_cron tutto il resto funziona; mancano solo i promemoria.
 6. **Realtime**: lo schema aggiunge le tabelle alla pubblicazione `supabase_realtime`. Se in Database → *Replication* le tabelle `notifiche`, `convocazioni`, `disponibilita`, `corsi`, `corsi_presenze`, `rimborsi`, `gare`, `profili` non risultano attive, attivale da lì.
 
@@ -82,7 +83,7 @@ Ogni push successivo aggiorna l'app; il service worker è *network-first*, quind
 3. Rientra nell'app: hai le schede del comitato e l'icona ⚙ delle impostazioni.
 4. Da **⚙ Impostazioni**: imposta i **parametri** dell'anno sportivo (tariffa km, gettoni), poi lancia **Sincronizza → Albo giudici** e **Calendario gare**. Gli aggiornamenti tecnici si creano da **Gare → Corsi e aggiornamenti**.
 5. Nella scheda **Giudici** completa qualifica, contatti e scadenze dei giudici importati (l'albo fornisce solo nome, cognome e provincia) e collega il tuo account al tuo profilo giudice (⚙ → Account e ruoli).
-6. I giudici si registrano dall'app: l'account nasce **ospite** (nessun accesso). Da ⚙ → Account e ruoli premi **Attiva**, scegli il ruolo e il profilo giudice (suggerito se l'email coincide). Per revocare un accesso riporta l'account a Ospite.
+6. Imposta il **codice di registrazione** (⚙ → Codice di registrazione) e comunicalo ai giudici: senza codice la registrazione viene rifiutata. I giudici si registrano dall'app: l'account nasce **ospite** (nessun accesso). Da ⚙ → Account e ruoli premi **Attiva**, scegli il ruolo e il profilo giudice (suggerito se l'email coincide). Per revocare un accesso riporta l'account a Ospite.
 
 ## Aggiornare l'app
 
@@ -90,7 +91,7 @@ Modifica `index.html`, aggiorna `APP_VER` e la voce "Novità" nella guida, aggio
 
 Per modifiche al database aggiungi le istruzioni in fondo a `supabase/schema.sql` (lo script è idempotente) ed eseguilo di nuovo nell'SQL Editor. **Dopo ogni aggiornamento dello schema va anche ripubblicata la funzione `sync`** se è cambiata (`supabase functions deploy sync` o incolla di nuovo il file dal Dashboard).
 
-Storico aggiornamenti dello schema: v1.5 (tabelle `notifiche`, `push_iscrizioni`, `notifiche_preferenze`; trigger che generano le notifiche su convocazioni, presenze ai corsi, rimborsi, disponibilità, nuovi account; `invia_promemoria()` con pg_cron; tabelle aggiunte a `supabase_realtime`); v1.4 (tabelle `corsi` e `corsi_presenze`, funzione `invita_tutti`, `riconcilia_swen` prudente, `is_comitato`/`is_attivo` che escludono il ruolo anon, revoca dell'esecuzione delle funzioni ad anon, colonna `gare.swen_classifica`, scrittura su `aggiornamenti` solo comitato); v1.2 (albo arco.swen, colonne `swen_id`/`tessera_numero`/`tessera_tipo` su `giudici`, funzione `riconcilia_swen`); v1.3 (ruolo `ospite` predefinito per i nuovi account, funzione `is_attivo()` nelle policy, nessun collegamento automatico per email).
+Storico aggiornamenti dello schema: v1.6 (viste con `security_invoker`, vista `giudici_pubblici`, lettura di `giudici` limitata a interessato e comitato, tabella `impostazioni` con codice di registrazione verificato in `handle_new_user`, `verifica_codice_registrazione`, privilegi delle funzioni revocati a PUBLIC/anon); v1.5 (tabelle `notifiche`, `push_iscrizioni`, `notifiche_preferenze`; trigger che generano le notifiche su convocazioni, presenze ai corsi, rimborsi, disponibilità, nuovi account; `invia_promemoria()` con pg_cron; tabelle aggiunte a `supabase_realtime`); v1.4 (tabelle `corsi` e `corsi_presenze`, funzione `invita_tutti`, `riconcilia_swen` prudente, `is_comitato`/`is_attivo` che escludono il ruolo anon, revoca dell'esecuzione delle funzioni ad anon, colonna `gare.swen_classifica`, scrittura su `aggiornamenti` solo comitato); v1.2 (albo arco.swen, colonne `swen_id`/`tessera_numero`/`tessera_tipo` su `giudici`, funzione `riconcilia_swen`); v1.3 (ruolo `ospite` predefinito per i nuovi account, funzione `is_attivo()` nelle policy, nessun collegamento automatico per email).
 
 ## Test locale dell'interfaccia
 

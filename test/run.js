@@ -28,7 +28,8 @@ const APP = require('path').join(__dirname,'..');
   await page.fill('#li-email','comitato@test.it'); await page.fill('#li-pass','x'); await page.click('text=Accedi');
   await page.waitForSelector('#app:not(.hidden)'); await page.waitForTimeout(300);
   await shot(page,'01-home-comitato'); await page.evaluate(()=>mostraOnboarding(true)); await page.waitForTimeout(150); await shot(page,'01b-onboarding'); await page.click('.modal-bg:last-child .actions >> text=Più tardi'); await page.waitForTimeout(150);
-  for (const t of ['gare','giudici','rimborsi','report','impostazioni']) { await page.evaluate(k=>go(k), t); await page.waitForTimeout(150); await shot(page,'02-'+t); }
+  for (const t of ['gare','giudici','rimborsi','report','impostazioni']) { await page.evaluate(k=>go(k), t); await page.waitForTimeout(250); await shot(page,'02-'+t); }
+  await page.evaluate(()=>codiceRegDlg()); await page.waitForTimeout(150); await shot(page,'02b-codice'); await page.click('.modal-bg:last-child .actions >> text=Salva'); await page.waitForTimeout(300);
   for (const r of ['giudici','mantenimento','copertura','riconcilia','referti']) { await page.evaluate(k=>{S.filtri.report=k;go('report')}, r); await page.waitForTimeout(150); await shot(page,'03-report-'+r); }
   // modali
   await page.evaluate(()=>{S.filtri.gareSez='aggiornamenti';go('gare')}); await page.waitForTimeout(150); await shot(page,'03b-aggiornamenti');

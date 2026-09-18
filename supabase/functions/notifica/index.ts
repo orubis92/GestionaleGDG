@@ -6,6 +6,7 @@
 //
 //  Segreti richiesti (Edge Functions → Secrets):
 //    VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY, VAPID_SUBJECT (es. mailto:comitato@esempio.it)
+//  Consigliato: WEBHOOK_SECRET (stringa a piacere) e nel Database Webhook l'header x-gdg-secret con lo stesso valore.
 //  Opzionali per l'email (uno dei due):
 //    BREVO_API_KEY  + EMAIL_FROM (mittente verificato su Brevo)   oppure
 //    RESEND_API_KEY + EMAIL_FROM (dominio verificato su Resend)
@@ -23,24 +24,20 @@ Deno.serve(async (req) => {
   const url = Deno.env.get("SUPABASE_URL")!, service = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
   const db = createClient(url, service);
 
-  // Accetta: (a) la chiave service_role del progetto (formato legacy JWT "eyJ…" o nuova "sb_secret_…"),
-  // passata come "Authorization: Bearer <chiave>" o come header "apikey"; (b) un utente loggato con ruolo comitato (invio di prova).
+  // Autorizzazione, in ordine:
+  //  (a) header "x-gdg-secret" uguale al secret WEBHOOK_SECRET della funzione (consigliato per il Database Webhook);
+  //  (b) Authorization con la service_role key del progetto (quella che la funzione stessa riceve nell'ambiente);
+  //  (c) un utente loggato con ruolo comitato (invio di prova dall'app).
   const rawAuth = req.headers.get("Authorization") ?? "";
-  const token = rawAuth.trim().split(/\s+/).pop() ?? "";            // tollera "Bearer", "bearer", refusi nel prefisso, nessun prefisso
-  const apikey = (req.headers.get("apikey") ?? "").trim();
-  const isServiceKey = (t: string) => {
-    if (!t) return false;
-    if (t === service) return true;
-    if (t.startsWith("sb_secret_")) return true;                     // nuove secret key: le possiede solo il proprietario del progetto
-    try { const payload = JSON.parse(atob(t.split(".")[1].replace(/-/g, "+").replace(/_/g, "/"))); return payload?.role === "service_role"; } catch { return false; }
-  };
-  let autorizzato = isServiceKey(token) || isServiceKey(apikey);
+  const token = rawAuth.trim().split(/\s+/).pop() ?? "";
+  const segreto = Deno.env.get("WEBHOOK_SECRET");
+  let autorizzato = (!!segreto && req.headers.get("x-gdg-secret") === segreto) || (!!token && token === service);
   if (!autorizzato && token) {
     const uc = createClient(url, Deno.env.get("SUPABASE_ANON_KEY")!, { global: { headers: { Authorization: `Bearer ${token}` } } });
     const { data: { user } } = await uc.auth.getUser();
     if (user) { const { data: p } = await uc.from("profili").select("ruolo").eq("id", user.id).maybeSingle(); autorizzato = p?.ruolo === "comitato"; }
   }
-  if (!autorizzato) return json({ error: "Non autorizzato", dettaglio: `header Authorization ${rawAuth ? "presente (" + rawAuth.slice(0, 12) + "…)" : "assente"}, apikey ${apikey ? "presente" : "assente"}` }, 401);
+  if (!autorizzato) return json({ error: "Non autorizzato", dettaglio: `Authorization ${rawAuth ? "presente" : "assente"}, x-gdg-secret ${req.headers.get("x-gdg-secret") ? "presente" : "assente"}, WEBHOOK_SECRET ${segreto ? "configurato" : "non configurato"}` }, 401);
 
   let body: Record<string, unknown> = {};
   try { body = await req.json(); } catch { /* vuoto */ }

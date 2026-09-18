@@ -192,6 +192,7 @@ details.guide summary{cursor:pointer;font-weight:600;padding:.4rem 0}
       <p class="small">Usa l'email che il comitato conosce. Dopo la registrazione l'account resta in attesa finché il comitato non lo attiva collegandolo al tuo profilo giudice: ricevuto l'ok, basta rientrare.</p>
       <label class="f">Email</label><input class="f" id="rg-email" type="email">
       <label class="f">Password (min 8 caratteri)</label><input class="f" id="rg-pass" type="password">
+      <label class="f">Codice di registrazione (fornito dal comitato)</label><input class="f" id="rg-codice" autocomplete="off">
       <button class="btn primary block mt" onclick="doRegister()">Crea account</button>
       <div class="center mt small"><a href="#" onclick="showLoginMode('login');return false">Torna al login</a></div>
     </div>
@@ -232,7 +233,7 @@ const CONFIG = {
   SUPABASE_URL: 'https://vscxesrpxmmyssrdegpm.supabase.co',
   SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZzY3hlc3JweG1teXNzcmRlZ3BtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk2MTk3MzYsImV4cCI6MjEwNTE5NTczNn0.cm98J7vJzY4qbxlsZ_9XpxYHTSvo7bMh4Sp7d1b_BeI'
 };
-const APP_VER = '1.6.1';
+const APP_VER = '1.7.0';
 /* ===================== COSTANTI DI DOMINIO ===================== */
 const QUALIFICHE = { regionale:'Giudice Regionale', nazionale:'Giudice Nazionale', emerito:'Giudice Emerito' };
 const RUOLI_GARA = { giudice:'Giudice', coordinatore:'Coordinatore', affiancamento:'Affiancamento' };
@@ -317,10 +318,13 @@ async function doLogin(){
   await afterLogin(data.user);
 }
 async function doRegister(){
-  const email=$('rg-email').value.trim(), password=$('rg-pass').value;
+  const email=$('rg-email').value.trim(), password=$('rg-pass').value, codice=$('rg-codice').value.trim();
   if(!email||password.length<8) return loginMsg('Email valida e password di almeno 8 caratteri','warn');
-  const { data, error } = await sb.auth.signUp({ email, password, options: { emailRedirectTo: location.href.split('#')[0].split('?')[0] } });
-  if(error) return loginMsg(error.message,'err');
+  const chk=await sb.rpc('verifica_codice_registrazione',{p_codice:codice});
+  if(chk.error) return loginMsg(chk.error.message,'err');
+  if(chk.data===false) return loginMsg('Codice di registrazione non valido: chiedilo al comitato.','err');
+  const { data, error } = await sb.auth.signUp({ email, password, options: { emailRedirectTo: location.href.split('#')[0].split('?')[0], data: { codice_registrazione: codice } } });
+  if(error) return loginMsg(/registrazione non valido|Database error/i.test(error.message)?'Codice di registrazione non valido: chiedilo al comitato.':error.message,'err');
   if(data.session){ await afterLogin(data.user); } else loginMsg('Account creato. Controlla la posta per confermare l\'email, poi accedi.','ok');
 }
 async function doReset(){
@@ -482,7 +486,7 @@ function prefNotificheDlg(){
 async function loadAll(){
   const q = (t, sel='*')=> sb.from(t).select(sel);
   const [g, ga, c, d, p, agg, sg, ko, pr] = await Promise.all([
-    q('giudici').order('cognome'),
+    S.comitato ? q('giudici').order('cognome') : q('giudici_pubblici').order('cognome'),
     q('gare').order('data_inizio'),
     q('v_convocazioni'),
     q('disponibilita'),
@@ -494,6 +498,10 @@ async function loadAll(){
   ]);
   for(const r of [g,ga,c,d,p,agg,sg,ko,pr]) if(r.error) return err(r.error);
   S.giudici=g.data; S.gare=ga.data; S.conv=c.data; S.disp=d.data; S.parametri=p.data; S.aggiornamenti=agg.data; S.statoGiudici=sg.data; S.corsi=ko.data; S.presenze=pr.data;
+  if(!S.comitato && S.profilo.giudice_id){ // la propria riga completa (contatti, scadenze) è leggibile solo dall'interessato
+    const me=await sb.from('giudici').select('*').eq('id',S.profilo.giudice_id).maybeSingle();
+    if(!me.error && me.data){ const i=S.giudici.findIndex(x=>x.id===me.data.id); if(i>=0) S.giudici[i]=me.data; else S.giudici.push(me.data); }
+  }
   await loadNotifiche();
   S.giudice = S.giudici.find(x=>x.id===S.profilo.giudice_id)||null;
   if(S.comitato){ const pr=await q('profili'); if(!pr.error) S.profili=pr.data; }
@@ -520,6 +528,7 @@ function go(tab){ S.tab=tab; document.querySelectorAll('nav.tabs button').forEac
 function render(){
   const v=$('view'); const fn=VIEWS[S.tab]; v.innerHTML = fn ? fn() : '<p>Vista non trovata</p>';
   updateCounters();
+  if(S.tab==='impostazioni' && S.comitato) caricaCodiceReg();
 }
 function updateCounters(){
   const set=(k,n)=>{ const e=$('cnt-'+k); if(!e) return; e.textContent=n; e.classList.toggle('hidden', !n); };
@@ -1155,6 +1164,8 @@ VIEWS.impostazioni = ()=>{
   <div class="card"><div class="section-title" style="margin-top:0"><h3>Sincronizzazione</h3></div>
     <p class="small">Il calendario gare arriva da <b>arco.swen</b> (endpoint pubblico) e l'elenco giudici dall'<b>Albo Nazionale CSAIN</b> (Tiro con l'arco · 3D · Ufficiali di Gara). La sincronizzazione gira su una funzione Supabase; i dati inseriti dal comitato non vengono sovrascritti.</p>
     <div class="row"><button class="btn" onclick="syncDlg('swen')">↻ Calendario gare</button><button class="btn" onclick="syncDlg('albo')">↻ Albo giudici</button><button class="btn sm" onclick="syncLog()">Registro</button></div></div>
+  <div class="card"><div class="section-title" style="margin-top:0"><h3>Codice di registrazione</h3><button class="btn sm" onclick="codiceRegDlg()">Modifica</button></div>
+    <p class="small">Chi si registra deve inserirlo: senza codice valido la registrazione viene rifiutata. Comunicalo ai giudici insieme all'indirizzo dell'app. Codice attuale: <b id="cod-reg">…</b></p></div>
   <div class="card"><div class="section-title" style="margin-top:0"><h3>Account e ruoli</h3></div>
     <p class="small muted">Un account nuovo nasce <b>ospite</b> e non vede nulla. Per attivarlo assegna il ruolo (Giudice o Comitato) e il profilo giudice collegato; l'app suggerisce il giudice con la stessa email. Il ruolo "Comitato" dà accesso completo.</p>
     ${sortBy(S.profili, pr=>(pr.ruolo==='ospite'?'0':'1')+(pr.email||'')).map(pr=>{ const g=S.giudici.find(x=>x.id===pr.giudice_id); const sug=!g&&pr.email?S.giudici.find(x=>x.email&&x.email.toLowerCase()===pr.email.toLowerCase()):null;
@@ -1162,6 +1173,11 @@ VIEWS.impostazioni = ()=>{
   <div class="card"><div class="section-title" style="margin-top:0"><h3>Notifiche</h3><button class="btn sm" onclick="prefNotificheDlg()">Le mie preferenze</button></div>${statoPushHtml()}<p class="small muted">Push ed email partono dalla funzione "notifica" (vedi README: chiavi VAPID, webhook, mittente email). Le notifiche in app funzionano sempre.</p></div>
   <div class="card"><h3>Guida e versione</h3><p class="small muted">La guida in linea (pulsante ? in alto) descrive ogni funzione e riporta le novità di ogni versione.</p><button class="btn" onclick="openGuide()">Apri la guida</button> <span class="small muted">GestionaleGDG v${APP_VER}</span></div>`;
 };
+async function caricaCodiceReg(){ const {data}=await sb.from('impostazioni').select('valore').eq('chiave','codice_registrazione').maybeSingle(); const e=$('cod-reg'); if(e) e.textContent=(data&&data.valore)?data.valore:'nessuno (registrazione libera)'; return data?data.valore:''; }
+function codiceRegDlg(){
+  openModal('Codice di registrazione', `<p class="small">Una parola o sigla che i giudici devono digitare per registrarsi (es. <i>GDG2026</i>). Cambiarla non tocca gli account già creati. Vuoto = registrazione libera (sconsigliato).</p><label class="f">Codice</label><input class="f" id="cr-val" value="${esc($('cod-reg')?$('cod-reg').textContent.replace(/^nessuno.*/,''):'')}">`,
+    [{t:'Annulla',fn:(m)=>closeModal(m)},{t:'Salva',cls:'primary',fn:async(m)=>{ const v=$('cr-val').value.trim(); const {error}=await sb.from('impostazioni').upsert({chiave:'codice_registrazione', valore:v||null, updated_at:new Date().toISOString()}); if(error) return err(error); closeModal(m); toast(v?'Codice salvato':'Registrazione libera','ok'); caricaCodiceReg(); }}]);
+}
 function parametriForm(){
   const p=S.parametri.find(x=>x.anno_sportivo===S.annoSportivo)||{...param(), anno_sportivo:S.annoSportivo, note:''};
   const html=`<p class="small muted">Anno sportivo <b>${S.annoSportivo}</b> · art. 16: misura stabilita annualmente dalla Commissione.</p>
@@ -1217,6 +1233,7 @@ async function syncLog(){
    (1) la sezione GUIDE interessata, (2) CHANGELOG con la versione, (3) APP_VER e CACHE in sw.js.
    r: 'tutti' | 'comitato' | 'giudice'  — per chi è rilevante la sezione. */
 const CHANGELOG = [
+  {v:'1.7.0', d:'2026-09-18', items:['Sicurezza: i colleghi vedono solo i dati essenziali di un giudice (nome, qualifica, provincia, società); contatti, scadenze e note restano riservati all\'interessato e al comitato.','Sicurezza: le viste di riepilogo rispettano le regole di accesso dell\'utente (un account non attivato non legge nulla) e nessuna funzione è eseguibile senza login.','Codice di registrazione: impostato dal comitato nelle Impostazioni, richiesto per creare un account.','Funzione notifiche: autorizzazione del webhook con un segreto dedicato.']},
   {v:'1.6.1', d:'2026-09-18', items:['Al primo accesso l\'app spiega come attivare le notifiche, con i passaggi specifici per iPhone/iPad (installazione nella schermata Home) o per Android e computer, e ripropone la richiesta a ogni accesso finché non sono attive, salvo "Non chiedermelo più".']},
   {v:'1.6.0', d:'2026-09-18', items:['Notifiche: campanella in alto con l\'elenco degli avvisi (convocazioni, conferme, inviti ai corsi, rimborsi, promemoria; per il comitato risposte dei giudici, disponibilità, rimborsi da approvare, nuovi account), aggiornata in tempo reale ad app aperta.','Notifiche push ad app chiusa (Android, computer, iPhone con app installata) attivabili per dispositivo; email opzionale; preferenze per categoria.','I dati si aggiornano da soli quando cambiano (nuove convocazioni, disponibilità, presenze) senza ricaricare la pagina.']},
   {v:'1.5.0', d:'2026-09-17', items:['Candidature: in Home del comitato compare la lista delle gare scoperte con i giudici disponibili e il pulsante Assegna.','Il giudice può allegare una nota alla propria disponibilità (es. "solo come affiancamento"), visibile al comitato in fase di assegnazione e nella scheda gara.','Quando una gara viene coperta da altri, il giudice lo vede ("Assegnata ad altri giudici") invece di un pulsante ancora attivo.']},
@@ -1232,7 +1249,7 @@ const GUIDE = [
   <p>I dati sono condivisi: tutti gli utenti vedono lo stesso calendario e le stesse convocazioni, aggiornate in tempo reale. L'app funziona da telefono, tablet e computer e si può installare come applicazione (vedi "Installare l'app").</p>`},
  {cat:'Per iniziare', r:'tutti', t:'Registrazione e accesso', c:`
   <ol>
-   <li>Apri l'app e scegli <b>Registrati</b> con la tua email e una password di almeno 8 caratteri.</li>
+   <li>Apri l'app e scegli <b>Registrati</b> con la tua email, una password di almeno 8 caratteri e il <b>codice di registrazione</b> che ti ha comunicato il comitato (senza codice valido la registrazione viene rifiutata).</li>
    <li>Il nuovo account nasce <b>in attesa di attivazione</b>: vedi solo una schermata di cortesia, nessun dato. È voluto: l'accesso ai dati dei giudici lo abilita il comitato, che collega l'account al tuo profilo.</li>
    <li>Quando il comitato ti ha attivato, premi <b>Ricontrolla</b> (o rientra): trovi le tue schede.</li>
   </ol>
@@ -1371,6 +1388,7 @@ const GUIDE = [
   <p>Icona <b>⚙</b> in alto (solo comitato).</p>
   <p><b>Parametri anno sportivo</b>: tariffa €/km, gettoni (regionale, nazionale, coordinatore), modalità di rimborso predefinita, minimi di servizi e aggiornamenti in 12 mesi, mesi massimi di inattività, limiti di età. Vanno impostati per ogni anno sportivo (art. 16: misura stabilita annualmente); se mancano si usano quelli dell'anno più recente.</p>
   <p><b>Sincronizzazione</b>: pulsanti per calendario gare e albo giudici, più il <b>Registro</b> delle esecuzioni con esito e note.</p>
+  <p><b>Codice di registrazione</b>: la parola che i giudici devono inserire per registrarsi; impedisce a estranei di creare account e di generare avvisi "nuovo account da attivare". Cambiala se viene diffusa fuori dal comitato.</p>
   <p><b>Account e ruoli</b>: gli account "da attivare" compaiono in cima (e con un avviso in Home). Premi <b>Attiva</b>, scegli il ruolo (Giudice o Comitato) e il giudice collegato: se esiste un giudice con la stessa email viene proposto, ma verifica che sia la persona giusta. Un account Giudice deve sempre avere un profilo collegato. Per revocare l'accesso a qualcuno riportalo a "Ospite". Non puoi togliere il ruolo Comitato a te stesso.</p>`},
  {cat:'Comitato', r:'comitato', t:'Sincronizzazioni: calendario e albo da arco.swen', c:`
   <p><b>Calendario gare</b>: legge il calendario pubblico del portale arco.swen e importa le sole gare (non corsi e attività didattiche) con data, tipo, classificazione, organizzatore, luogo, contatti e il <b>giudice registrato</b> dall'organizzatore. Le gare nuove passate vengono create come "svolte", quelle future come "in programma"; le gare disattivate sul portale vengono segnate "annullate" con una nota nel registro. Percorsi, fabbisogno e note del comitato non vengono mai sovrascritti.</p>
@@ -1390,7 +1408,7 @@ const GUIDE = [
  {cat:'Domande frequenti', r:'tutti', t:'Il giudice registrato su arco.swen non viene riconosciuto', c:`<p>Il confronto usa "COGNOME NOME" (o "NOME COGNOME"), ignorando maiuscole e spazi doppi. Se sul portale c'è un refuso o un nome diverso da quello in elenco (per esempio un secondo nome mancante), la gara finisce tra i "non riconosciuti": correggi il nome del giudice in elenco perché coincida con l'albo arco.swen, oppure crea la convocazione a mano dalla scheda della gara.</p>`},
  {cat:'Domande frequenti', r:'tutti', t:'Ho sbagliato a segnare "Assente"', c:`<p>Dalla scheda della gara annulla la convocazione (✕) e ricreala con stato "Confermata direttamente", poi segnala Svolta. Lo storico conserva entrambe le operazioni.</p>`},
  {cat:'Domande frequenti', r:'tutti', t:'Posso lavorare senza connessione?', c:`<p>Le schermate già aperte restano visibili, ma qualsiasi modifica (disponibilità, risposte, rimborsi) richiede la connessione: se salvi senza rete compare un errore e l'operazione non viene registrata.</p>`},
- {cat:'Domande frequenti', r:'tutti', t:'Chi vede i miei dati?', c:`<p>Gli account attivati vedono nome, qualifica e convocazioni dei colleghi (serve per conoscere la squadra di gara). Contatti, scadenze, rimborsi e referti sono visibili solo a te e al comitato. Un account non attivato (ospite) non vede nulla. Le regole di accesso sono applicate dal database, non solo dall'interfaccia.</p>`},
+ {cat:'Domande frequenti', r:'tutti', t:'Chi vede i miei dati?', c:`<p>I colleghi vedono solo cognome, nome, qualifica, provincia, regione e società (serve per conoscere la squadra di gara) e le convocazioni. Contatti, indirizzo, data di nascita, scadenze, note del comitato, rimborsi e referti sono visibili solo a te e al comitato. Un account non attivato (ospite) non vede nulla. Le regole di accesso sono applicate dal database, non solo dall'interfaccia.</p>`},
  {cat:'Domande frequenti', r:'comitato', t:'Un giudice si è registrato ma dice di non vedere niente', c:`<p>È un account ancora "ospite": vai in ⚙ Impostazioni → Account e ruoli, premi <b>Attiva</b> sull'email, scegli Giudice e il profilo collegato. Al suo "Ricontrolla" vedrà le sue schede.</p>`}
 ];
 VIEWS.guida = ()=>{
