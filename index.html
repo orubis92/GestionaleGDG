@@ -233,7 +233,7 @@ const CONFIG = {
   SUPABASE_URL: 'https://vscxesrpxmmyssrdegpm.supabase.co',
   SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZzY3hlc3JweG1teXNzcmRlZ3BtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk2MTk3MzYsImV4cCI6MjEwNTE5NTczNn0.cm98J7vJzY4qbxlsZ_9XpxYHTSvo7bMh4Sp7d1b_BeI'
 };
-const APP_VER = '1.7.0';
+const APP_VER = '1.7.2';
 /* ===================== COSTANTI DI DOMINIO ===================== */
 const QUALIFICHE = { regionale:'Giudice Regionale', nazionale:'Giudice Nazionale', emerito:'Giudice Emerito' };
 const RUOLI_GARA = { giudice:'Giudice', coordinatore:'Coordinatore', affiancamento:'Affiancamento' };
@@ -437,7 +437,7 @@ function statoPushHtml(){
   if(isIOS() && !isStandalone()) return '<div class="alert info small">Su iPhone/iPad le notifiche push arrivano solo se l\'app è installata: Safari → Condividi → <b>Aggiungi alla schermata Home</b>, poi aprila da lì e attiva le notifiche.</div>';
   if(!pushSupportato()) return '<div class="alert warn small">Questo browser non supporta le notifiche push.</div>';
   if(Notification.permission==='denied') return '<div class="alert err small">Notifiche bloccate nelle impostazioni del browser per questo sito: riattivale da lì per riceverle a app chiusa.</div>';
-  if(Notification.permission==='granted' && localStorage.getItem('gdg_push_ok')==='1') return '<div class="alert ok small">Notifiche push attive su questo dispositivo. <a href="#" onclick="testPush();return false">Invia una prova</a></div>';
+  if(Notification.permission==='granted' && localStorage.getItem('gdg_push_ok')==='1') return '<div class="alert ok small">Notifiche push attive su questo dispositivo. <a href="#" onclick="testPush();return false">Invia una prova</a>'+(S.comitato?' · <a href="#" onclick="diagnosticaPush();return false">Diagnostica</a>':'')+'</div>';
   return `<div class="alert info small">Ricevi le notifiche anche ad app chiusa. <button class="btn sm primary" onclick="abilitaPush()">Attiva su questo dispositivo</button></div>`;
 }
 function urlB64ToU8(b){ const p='='.repeat((4-b.length%4)%4); const s=(b+p).replace(/-/g,'+').replace(/_/g,'/'); const r=atob(s); return Uint8Array.from([...r].map(c=>c.charCodeAt(0))); }
@@ -458,7 +458,56 @@ async function abilitaPush(){
 async function disabilitaPush(){
   try{ const reg=await navigator.serviceWorker.ready; const sub=await reg.pushManager.getSubscription(); if(sub){ await sb.from('push_iscrizioni').delete().eq('endpoint',sub.endpoint); await sub.unsubscribe(); } localStorage.removeItem('gdg_push_ok'); toast('Push disattivate su questo dispositivo'); closeModal(); prefNotificheDlg(); }catch(e){ err(e); }
 }
-async function testPush(){ const {error}=await sb.from('notifiche').insert({ user_id:S.user.id, tipo:'sistema', titolo:'Notifica di prova', corpo:'Se la leggi anche ad app chiusa, le push funzionano.', dati:{} }); if(error) return err(error); toast('Inviata: chiudi l\'app e attendi qualche secondo'); }
+async function testPush(){ const {data,error}=await sb.from('notifiche').insert({ user_id:S.user.id, tipo:'sistema', titolo:'Notifica di prova', corpo:'Se la leggi anche ad app chiusa, le push funzionano.', dati:{} }).select().single(); if(error) return err(error); toast('Inviata: chiudi l\'app e attendi qualche secondo');
+  // dopo qualche secondo controlla se la funzione ha segnato l'invio
+  setTimeout(async()=>{ const r=await sb.from('notifiche').select('inviata_push').eq('id',data.id).maybeSingle(); if(r.error||!r.data) return;
+    if(r.data.inviata_push===true) toast('Push spedita dal server','ok'); else if(r.data.inviata_push===false) toast('Il server ha provato ma nessuna push è partita: apri Diagnostica','err'); else toast('Il webhook non ha chiamato la funzione (inviata_push vuoto): apri Diagnostica','err'); }, 8000); }
+// Diagnostica (comitato): chiama la funzione "notifica" direttamente (senza webhook) sull'ultima notifica di prova
+// e legge dal DB le ultime risposte ricevute dal webhook. Serve a capire quale anello della catena non funziona.
+async function diagnosticaPush(){
+  const m=openModal('Diagnostica notifiche push', '<p class="muted">Verifica in corso…</p>', [{t:'Chiudi',fn:(id)=>closeModal(id)}]);
+  const out=[]; const ok=(t)=>`<li>✅ ${t}</li>`, ko=(t)=>`<li>❌ ${t}</li>`, info=(t)=>`<li>ℹ️ ${t}</li>`;
+  // 1) iscrizione di questo dispositivo
+  try{ const reg=await navigator.serviceWorker.ready; const sub=await reg.pushManager.getSubscription();
+    if(!sub) out.push(ko('Questo dispositivo non ha un\'iscrizione push attiva: premi "Attiva su questo dispositivo".'));
+    else { const k=btoa(String.fromCharCode(...new Uint8Array(sub.options.applicationServerKey||new ArrayBuffer(0)))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+      out.push(ok('Iscrizione push presente su questo dispositivo ('+new URL(sub.endpoint).host+')'));
+      if(k && CONFIG.VAPID_PUBLIC_KEY && k!==CONFIG.VAPID_PUBLIC_KEY) out.push(ko('L\'iscrizione è stata fatta con una chiave VAPID diversa da quella attuale dell\'app: disattiva e riattiva le push su questo dispositivo.'));
+      if(!CONFIG.VAPID_PUBLIC_KEY) out.push(ko('CONFIG.VAPID_PUBLIC_KEY è vuota in index.html.')); }
+  }catch(e){ out.push(ko('Service worker/push non disponibili: '+esc(e.message||e))); }
+  // 2) DB: iscrizioni salvate, ultime notifiche, risposte del webhook
+  let d=null; try{ const r=await sb.rpc('diagnostica_notifiche'); if(r.error) throw r.error; d=r.data; }catch(e){ out.push(ko('Funzione diagnostica_notifiche non disponibile (riesegui schema.sql v1.7): '+esc(e.message||e))); }
+  if(d){
+    out.push(d.mie_iscrizioni_push>0?ok(`${d.mie_iscrizioni_push} iscrizione/i push salvate nel database per il tuo account`):ko('Nessuna iscrizione push salvata nel database per il tuo account: premi "Attiva su questo dispositivo".'));
+    if(!d.pg_net) out.push(ko('Estensione pg_net non attiva: i Database Webhook non possono funzionare.'));
+    const rw=Array.isArray(d.risposte_webhook)?d.risposte_webhook:[];
+    if(!rw.length) out.push(ko('Nessuna risposta registrata dal webhook: il webhook su "notifiche" non esiste o non è mai scattato (Database → Webhooks).'));
+    else { const last=rw[0]; const txt=(last.risposta||last.errore||'').toString();
+      if(last.stato===200) out.push(ok('Ultima chiamata del webhook: 200 · '+esc(txt.slice(0,200))));
+      else if(last.stato===401 && /Invalid JWT|jwt/i.test(txt)) out.push(ko('Ultima chiamata del webhook: 401 "Invalid JWT" — il gateway rifiuta la chiave nell\'header Authorization del webhook (vecchia o disattivata). Ripubblica la funzione con <code>--no-verify-jwt</code> (o disattiva "Verify JWT" nelle impostazioni della funzione) oppure aggiorna l\'header Authorization del webhook con la chiave attuale.'));
+      else if(last.stato===401) out.push(ko('Ultima chiamata del webhook: 401 dalla funzione — header <code>x-gdg-secret</code> mancante o diverso dal secret WEBHOOK_SECRET. Risposta: '+esc(txt.slice(0,200))));
+      else out.push(ko(`Ultima chiamata del webhook: ${last.stato||'nessuna risposta'} · `+esc(txt.slice(0,200))));
+      out.push(info('Storico risposte webhook: '+rw.map(x=>x.stato||'—').join(', '))); }
+    const un=Array.isArray(d.ultime_notifiche)?d.ultime_notifiche:[];
+    if(un.length) out.push(info('Ultime notifiche (push): '+un.map(x=>esc(x.titolo)+' → '+(x.inviata_push===true?'spedita':x.inviata_push===false?'fallita':'non elaborata')).join(' · ')));
+  }
+  // 3) chiamata diretta alla funzione (come utente comitato), sull'ultima notifica di prova
+  try{ let r=await sb.from('notifiche').select('id').eq('user_id',S.user.id).eq('tipo','sistema').order('created_at',{ascending:false}).limit(1).maybeSingle();
+    let nid=r.data&&r.data.id; if(!nid){ const ins=await sb.from('notifiche').insert({ user_id:S.user.id, tipo:'sistema', titolo:'Notifica di prova (diagnostica)', corpo:'Prova diretta della funzione notifica.', dati:{} }).select().single(); if(ins.error) throw ins.error; nid=ins.data.id; }
+    const {data,error}=await sb.functions.invoke('notifica',{body:{id:nid}});
+    if(error){ let det=''; try{ det=await error.context.text(); }catch(_){ } throw new Error((error.message||'')+' '+det); }
+    if(data.error) throw new Error(data.error+(data.dettaglio?' — '+data.dettaglio:''));
+    const c=data.config||{};
+    out.push(ok('La funzione "notifica" risponde alla chiamata diretta dall\'app'));
+    out.push(c.vapid?ok('Chiavi VAPID configurate nella funzione (pubblica inizia con '+esc(c.vapid_public_prefix||'')+'…)'):ko('Chiavi VAPID mancanti nei secret della funzione (VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY).'));
+    if(c.vapid && CONFIG.VAPID_PUBLIC_KEY && !CONFIG.VAPID_PUBLIC_KEY.startsWith(c.vapid_public_prefix)) out.push(ko('La chiave VAPID pubblica dell\'app (index.html) è diversa da quella della funzione: devono essere la stessa coppia.'));
+    out.push(c.webhook_secret?ok('WEBHOOK_SECRET configurato nella funzione'):ko('WEBHOOK_SECRET non configurato nei secret della funzione.'));
+    if(data.push==='VAPID non configurato') {} else if(typeof data.push==='number'){ out.push(data.push>0?ok(`Push spedite: ${data.push} su ${data.iscrizioni}`):ko(`Nessuna push spedita (iscrizioni: ${data.iscrizioni}, errori: ${data.push_errori})`)); }
+    (data.push_dettaglio||[]).forEach(x=>out.push(ko('Errore push: '+esc(x)+(/403|VAPID|Unauthorized/i.test(x)?' — tipico di chiavi VAPID cambiate: le iscrizioni vecchie vanno rifatte (disattiva e riattiva le push sul dispositivo).':''))));
+    if(data.aggiornamento) out.push(ko('La funzione non riesce a scrivere su "notifiche": '+esc(data.aggiornamento)+' — chiave service_role non valida? (se hai ruotato o disattivato le chiavi legacy, ripubblica la funzione)'));
+  }catch(e){ const msg=(e.message||e).toString(); out.push(ko('Chiamata diretta alla funzione fallita: '+esc(msg)+(/Invalid JWT|401/.test(msg)?' — se hai cambiato le chiavi API, ripubblica la funzione "notifica" (con --no-verify-jwt) e verifica che l\'app usi la chiave anon attuale.':/not found|404/i.test(msg)?' — la funzione "notifica" non risulta pubblicata.':''))); }
+  const body=document.querySelector('#'+m+' .mb-body'); if(body) body.innerHTML=`<ul class="small" style="list-style:none;padding-left:0;line-height:1.5">${out.join('')}</ul>`;
+}
 function pushBannerHtml(){
   if(!pushSupportato() || Notification.permission!=='default' || localStorage.getItem('gdg_push_no')==='1' || (isIOS()&&!isStandalone())) return '';
   return `<div class="alert info"><b>Notifiche</b>: vuoi ricevere convocazioni, inviti e promemoria anche ad app chiusa? <div class="row mt"><button class="btn sm primary" onclick="abilitaPush()">Attiva</button><button class="btn sm" onclick="localStorage.setItem('gdg_push_no','1');render()">Non ora</button></div></div>`;
@@ -556,6 +605,8 @@ function confirmDlg(title, msg, fn, cls='primary'){ openModal(title, `<p>${msg}<
 
 /* ===================== HELPER DI DOMINIO ===================== */
 function convDiGara(gid){ return S.conv.filter(c=>c.gara_id===gid && c.stato!=='annullata'); }
+// convocazione "viva" (non annullata/rifiutata) di un giudice per una gara; in mancanza, l'ultima chiusa
+function convAttiva(gid, jid){ const mie=S.conv.filter(c=>c.gara_id===gid && c.giudice_id===jid); return mie.find(c=>!['annullata','rifiutata'].includes(c.stato)) || sortBy(mie, c=>c.created_at||'', true)[0] || null; }
 function dispDiGara(gid){ return S.disp.filter(d=>d.gara_id===gid); }
 function confermatiGara(g){ return convDiGara(g.id).filter(c=>['confermata','svolta'].includes(c.stato) && c.ruolo!=='affiancamento').length; }
 function gareScoperte(){ return S.gare.filter(g=>g.stato==='programmata' && g.data_inizio>=today() && confermatiGara(g)<g.fabbisogno_giudici); }
@@ -586,6 +637,9 @@ function avvisiAssegnazione(g, ga){
   const d=dispDiGara(ga.id).find(x=>x.giudice_id===g.id); if(d&&d.stato==='non_disponibile') a.push('Si è dichiarato NON disponibile');
   const altra=S.conv.find(c=>c.giudice_id===g.id && c.gara_id!==ga.id && !['rifiutata','annullata'].includes(c.stato) && c.data_inizio<=(ga.data_fine||ga.data_inizio) && (c.data_fine||c.data_inizio)>=ga.data_inizio);
   if(altra) a.push(`Già convocato lo stesso giorno: ${altra.titolo}`);
+  const prec=S.conv.filter(c=>c.giudice_id===g.id && c.gara_id===ga.id && ['rifiutata','annullata'].includes(c.stato));
+  if(prec.some(c=>c.stato==='rifiutata')) a.push('Ha già rifiutato una convocazione per questa gara'+(prec.find(c=>c.stato==='rifiutata').motivo_rifiuto?': '+prec.find(c=>c.stato==='rifiutata').motivo_rifiuto:''));
+  else if(prec.length) a.push('Una precedente convocazione per questa gara era stata annullata');
   return a;
 }
 /* ===================== VISTE ===================== */
@@ -757,7 +811,7 @@ VIEWS.gareList = (toggle='')=>{
   if(f.future!==false) list=list.filter(g=>(g.data_fine||g.data_inizio)>=today());
   const classi=[...new Set(S.gare.map(g=>g.classificazione).filter(Boolean))].sort();
   const byMonth=groupBy(list, g=>g.data_inizio.slice(0,7));
-  const mio = S.giudice ? (g)=>{ const d=dispDiGara(g.id).find(x=>x.giudice_id===S.giudice.id); const c=convDiGara(g.id).find(x=>x.giudice_id===S.giudice.id);
+  const mio = S.giudice ? (g)=>{ const d=dispDiGara(g.id).find(x=>x.giudice_id===S.giudice.id); const c=convAttiva(g.id, S.giudice.id);
       if(c) return pill(STATI_CONV[c.stato], STATI_CONV_CLS[c.stato]);
       if(g.stato!=='programmata'||g.data_inizio<today()) return '';
       const coperta = confermatiGara(g)>=g.fabbisogno_giudici;
@@ -815,7 +869,7 @@ function openGara(id){
 
 function assegnaDlg(gid){
   const ga=S.gare.find(x=>x.id===gid);
-  const giaConv=new Set(convDiGara(gid).map(c=>c.giudice_id));
+  const giaConv=new Set(convDiGara(gid).filter(c=>c.stato!=='rifiutata').map(c=>c.giudice_id));   // chi ha rifiutato/annullato può essere riconvocato
   const disp=dispDiGara(gid);
   const cand=S.giudici.filter(g=>g.attivo && !giaConv.has(g.id));
   const ord=(g)=>{ const d=disp.find(x=>x.giudice_id===g.id); return d?(d.stato==='disponibile'?0:2):1; };
@@ -1233,6 +1287,8 @@ async function syncLog(){
    (1) la sezione GUIDE interessata, (2) CHANGELOG con la versione, (3) APP_VER e CACHE in sw.js.
    r: 'tutti' | 'comitato' | 'giudice'  — per chi è rilevante la sezione. */
 const CHANGELOG = [
+  {v:'1.7.2', d:'2026-09-18', items:['Diagnostica notifiche push (comitato): dalla campanella, accanto a "Invia una prova", il link <b>Diagnostica</b> controlla ogni anello della catena (iscrizione del dispositivo, chiavi VAPID, webhook, secret, funzione) e dice cosa sistemare.','"Invia una prova" ora avvisa dopo pochi secondi se il server ha spedito la push, se ha fallito o se il webhook non è scattato.','Richiede schema.sql v1.7 (funzione diagnostica_notifiche) e la ripubblicazione della funzione notifica, consigliata con --no-verify-jwt.']},
+  {v:'1.7.1', d:'2026-09-18', items:['Correzione: dopo aver annullato (o dopo un rifiuto) una convocazione, il giudice può essere riconvocato per la stessa gara; prima il database rifiutava la nuova riga. Richiede di rieseguire schema.sql (v1.7).','Nella finestra di assegnazione compare un avviso se il giudice aveva già rifiutato o aveva una convocazione annullata per quella gara.']},
   {v:'1.7.0', d:'2026-09-18', items:['Sicurezza: i colleghi vedono solo i dati essenziali di un giudice (nome, qualifica, provincia, società); contatti, scadenze e note restano riservati all\'interessato e al comitato.','Sicurezza: le viste di riepilogo rispettano le regole di accesso dell\'utente (un account non attivato non legge nulla) e nessuna funzione è eseguibile senza login.','Codice di registrazione: impostato dal comitato nelle Impostazioni, richiesto per creare un account.','Funzione notifiche: autorizzazione del webhook con un segreto dedicato.']},
   {v:'1.6.1', d:'2026-09-18', items:['Al primo accesso l\'app spiega come attivare le notifiche, con i passaggi specifici per iPhone/iPad (installazione nella schermata Home) o per Android e computer, e ripropone la richiesta a ogni accesso finché non sono attive, salvo "Non chiedermelo più".']},
   {v:'1.6.0', d:'2026-09-18', items:['Notifiche: campanella in alto con l\'elenco degli avvisi (convocazioni, conferme, inviti ai corsi, rimborsi, promemoria; per il comitato risposte dei giudici, disponibilità, rimborsi da approvare, nuovi account), aggiornata in tempo reale ad app aperta.','Notifiche push ad app chiusa (Android, computer, iPhone con app installata) attivabili per dispositivo; email opzionale; preferenze per categoria.','I dati si aggiornano da soli quando cambiano (nuove convocazioni, disponibilità, presenze) senza ricaricare la pagina.']},
@@ -1264,7 +1320,8 @@ const GUIDE = [
   <p>Ogni evento che ti riguarda genera una notifica: la trovi nella <b>campanella</b> in alto (con il numero di quelle da leggere) e toccandola si apre direttamente la gara, il corso o il rimborso. Con l'app aperta arriva in tempo reale, senza ricaricare.</p>
   <p><b>Push (app chiusa)</b>: dalla campanella o dal Profilo premi <b>Attiva su questo dispositivo</b> e accetta il permesso del browser. Vale per dispositivo: ripetilo su telefono e computer. Su <b>iPhone/iPad</b> funziona solo con l'app installata nella schermata Home (Safari → Condividi → Aggiungi alla schermata Home) e aperta da lì. Se il permesso è stato negato, va riattivato dalle impostazioni del browser per il sito.</p>
   <p><b>Email</b>: in ⚙ Preferenze notifiche puoi attivare l'invio via email al tuo indirizzo, utile se non usi le push. Sempre in Preferenze scegli quali categorie ricevere: convocazioni, inviti ai corsi, rimborsi, promemoria (3 giorni prima di una gara confermata, il giorno prima di un corso) e, per il comitato, le risposte dei giudici, le disponibilità sulle gare scoperte, i rimborsi da approvare e i nuovi account.</p>
-  <p>"Invia una prova" crea una notifica di test: chiudi l'app e verifica che arrivi. La consegna delle push dipende dal telefono (risparmio energetico, browser): la campanella resta il riferimento certo.</p>
+  <p>"Invia una prova" crea una notifica di test: chiudi l'app e verifica che arrivi; dopo qualche secondo l'app dice se il server l'ha spedita. La consegna delle push dipende dal telefono (risparmio energetico, browser): la campanella resta il riferimento certo.</p>
+  <p><b>Diagnostica</b> (solo comitato, accanto a "Invia una prova"): controlla l'iscrizione del dispositivo, le chiavi VAPID (app e funzione devono usare la stessa coppia), le ultime risposte del webhook, il secret e la funzione <i>notifica</i>, e per ogni problema indica la correzione. Se hai cambiato o rigenerato chiavi (API Supabase, VAPID, secret) è il primo posto dove guardare: dopo un cambio delle chiavi VAPID le iscrizioni vecchie non sono più valide e ogni dispositivo deve disattivare e riattivare le push; dopo un cambio delle chiavi API la funzione va ripubblicata.</p>
   <p><b>Al primo accesso</b> (e a ogni accesso successivo finché non le attivi) l'app mostra una finestra con i passaggi per il tuo dispositivo; "Non chiedermelo più" la disattiva, e potrai sempre attivare le notifiche dalla campanella.</p>`},
  {cat:'Per iniziare', r:'tutti', t:'Ruoli: comitato e giudice', c:`
   <p><b>Comitato</b>: vede e gestisce tutto: giudici, gare, convocazioni, rimborsi, parametri, report, sincronizzazioni e account. Ha le schede Home, Gare, Giudici, Rimborsi, Report e l'icona ⚙ Impostazioni.</p>
@@ -1343,7 +1400,7 @@ const GUIDE = [
    <li>Premi <b>Assegna</b>: scegli il <b>ruolo</b> in gara (Giudice; Coordinatore per i Nazionali nelle gare nazionali; Affiancamento per chi è in affiancamento), spunta la <b>deroga</b> se richiesta, scegli se creare una <b>Proposta</b> (il giudice deve accettare) o una convocazione <b>Confermata</b> direttamente (per accordi già presi a voce).</li>
    <li>Quando il giudice accetta, <b>Conferma</b> (dalla Home o dalla scheda gara). Dopo la gara segna <b>Svolta</b> o <b>Assente</b>.</li>
   </ol>
-  <p><b>✕</b> annulla una convocazione (resta nello storico come "annullata"). Le regole bloccanti sono applicate dal database, quindi valgono anche se qualcuno prova a aggirare l'interfaccia.</p>`},
+  <p><b>✕</b> annulla una convocazione (resta nello storico come "annullata"). Un giudice con una convocazione annullata o rifiutata torna tra gli assegnabili e può essere <b>riconvocato</b> per la stessa gara: nella finestra di assegnazione compare un avviso con il motivo del rifiuto o la nota dell'annullamento. Le regole bloccanti sono applicate dal database, quindi valgono anche se qualcuno prova a aggirare l'interfaccia.</p>`},
  {cat:'Comitato', r:'comitato', t:'Stati di una convocazione', c:`
   <p><span class="pill warn">Proposta</span> → <span class="pill info">Accettata</span> o <span class="pill err">Rifiutata</span> (con motivo) → <span class="pill ok">Confermata</span> → <span class="pill ok">Svolta</span> o <span class="pill err">Assente</span>. In qualsiasi momento il comitato può impostare <span class="pill grey">Annullata</span>.</p>
   <p>Ogni cambio di stato è registrato nello storico con data e autore. Nei conteggi di copertura contano solo le convocazioni confermate o svolte con ruolo diverso da Affiancamento; nei report di attività contano solo le "svolte".</p>`},
@@ -1402,7 +1459,7 @@ const GUIDE = [
  {cat:'Domande frequenti', r:'tutti', t:'Perché una gara risulta "scoperta" anche se ho convocato qualcuno?', c:`<p>Contano solo le convocazioni <b>confermate</b> (o svolte) con ruolo Giudice o Coordinatore. Una proposta non ancora accettata, una accettata non ancora confermata o un affiancamento non coprono il fabbisogno.</p>`},
  {cat:'Domande frequenti', r:'tutti', t:'Ho convocato un giudice ma l\'app dice "richiede deroga"', c:`<p>È un Giudice Regionale su una gara Nazionale/Internazionale/Europea (art. 7 ter). Nella finestra di conferma dell'assegnazione spunta "Autorizzo la deroga del comitato". La deroga resta visibile sulla convocazione.</p>`},
  {cat:'Domande frequenti', r:'tutti', t:'Non riesco a confermare un giudice in affiancamento', c:`<p>Un giudice in affiancamento deve essere affiancato da un giudice riconosciuto (art. 2): conferma prima almeno un giudice con ruolo Giudice o Coordinatore sulla stessa gara.</p>`},
- {cat:'Domande frequenti', r:'tutti', t:'Un giudice non compare tra gli assegnabili', c:`<p>O è già convocato per quella gara (anche come proposta), oppure è segnato "non attivo". I non attivi si vedono nella scheda Giudici con il filtro "Anche non attivi".</p>`},
+ {cat:'Domande frequenti', r:'tutti', t:'Un giudice non compare tra gli assegnabili', c:`<p>O ha già una convocazione attiva per quella gara (anche solo proposta), oppure è segnato "non attivo". Una convocazione annullata o rifiutata non conta: il giudice resta assegnabile. I non attivi si vedono nella scheda Giudici con il filtro "Anche non attivi".</p>`},
  {cat:'Domande frequenti', r:'tutti', t:'I conteggi del report non tornano (un servizio svolto non viene contato)', c:`<p>Conta solo una convocazione in stato <b>svolta</b>. Se il giudice è registrato sul portale arco.swen e la gara è passata, lancia <b>Sincronizza → Calendario gare</b>: la convocazione viene creata; diventa "svolta" da sola se il portale ha la classifica calcolata, altrimenti la trovi in Home tra le gare da chiudere. Se la gara non è su arco.swen o il giudice registrato è diverso, creala dalla scheda della gara con stato "Confermata direttamente" e poi segnala Svolta. Controlla anche l'anno sportivo selezionato.</p>`},
  {cat:'Domande frequenti', r:'giudice', t:'Non trovo più il pulsante per aggiungere un aggiornamento', c:`<p>Dalla versione 1.4 gli aggiornamenti sono eventi creati dal comitato e le presenze le registra il comitato: vedi "Corsi e aggiornamenti". Per un corso esterno riconosciuto, chiedi al comitato di registrarlo.</p>`},
  {cat:'Domande frequenti', r:'tutti', t:'Il giudice registrato su arco.swen non viene riconosciuto', c:`<p>Il confronto usa "COGNOME NOME" (o "NOME COGNOME"), ignorando maiuscole e spazi doppi. Se sul portale c'è un refuso o un nome diverso da quello in elenco (per esempio un secondo nome mancante), la gara finisce tra i "non riconosciuti": correggi il nome del giudice in elenco perché coincida con l'albo arco.swen, oppure crea la convocazione a mano dalla scheda della gara.</p>`},

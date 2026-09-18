@@ -43,6 +43,21 @@ const APP = require('path').join(__dirname,'..');
   await page.evaluate(()=>{ document.querySelector('#asg-deroga').checked=true; });
   await page.click('.modal-bg:last-child .actions >> text=Convoca'); await page.waitForTimeout(400); await shot(page,'07-dopo-convoca');
   await page.evaluate(()=>$('modals').innerHTML='');
+  // annulla e riconvoca lo stesso giudice (bug 1.7.1)
+  { const cid = await page.evaluate(()=>S.conv.find(c=>c.gara_id==='ga1'&&c.giudice_id==='g2'&&c.stato!=='annullata').id);
+    await page.evaluate(id=>cambiaStato(id,'annullata'), cid); await page.waitForTimeout(200);
+    await page.click('.modal-bg:last-child .actions >> text=Conferma'); await page.waitForTimeout(400);
+    await page.evaluate(()=>$('modals').innerHTML=''); await page.evaluate(()=>assegnaDlg('ga1')); await page.waitForTimeout(150);
+    const inList = await page.evaluate(()=>!!document.querySelector('#asg-list') && document.querySelector('#asg-list').innerText.includes('Rossi'));
+    const avviso = await page.evaluate(()=>document.querySelector('#asg-list').innerText.includes('annullata'));
+    console.log('RICONVOCA: giudice riassegnabile =', inList, '| avviso annullamento =', avviso);
+    await shot(page,'07b-riassegna');
+    await page.evaluate(()=>assegnaConferma('ga1','g2')); await page.waitForTimeout(150);
+    await page.evaluate(()=>{ document.querySelector('#asg-deroga').checked=true; });
+    await page.click('.modal-bg:last-child .actions >> text=Convoca'); await page.waitForTimeout(400);
+    const n = await page.evaluate(()=>S.conv.filter(c=>c.gara_id==='ga1'&&c.giudice_id==='g2').map(c=>c.stato).join(','));
+    console.log('RICONVOCA: stati =', n);
+    await page.evaluate(()=>$('modals').innerHTML=''); }
   await page.evaluate(()=>openGiudice('g2')); await page.waitForTimeout(150); await shot(page,'08-giudice');
   await page.evaluate(()=>$('modals').innerHTML=''); await page.evaluate(()=>giudiceForm('g2')); await page.waitForTimeout(150); await shot(page,'09-giudice-form');
   await page.evaluate(()=>$('modals').innerHTML=''); await page.evaluate(()=>garaForm('ga2')); await page.waitForTimeout(150); await shot(page,'10-gara-form');

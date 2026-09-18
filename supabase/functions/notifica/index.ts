@@ -6,6 +6,8 @@
 //
 //  Segreti richiesti (Edge Functions → Secrets):
 //    VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY, VAPID_SUBJECT (es. mailto:comitato@esempio.it)
+//  Pubblicare con --no-verify-jwt (l'autorizzazione la fa la funzione stessa, vedi sotto): altrimenti il gateway
+//  rifiuta con "Invalid JWT" le chiamate del webhook se la chiave nell'header Authorization è vecchia o disattivata.
 //  Consigliato: WEBHOOK_SECRET (stringa a piacere) e nel Database Webhook l'header x-gdg-secret con lo stesso valore.
 //  Opzionali per l'email (uno dei due):
 //    BREVO_API_KEY  + EMAIL_FROM (mittente verificato su Brevo)   oppure
@@ -54,14 +56,19 @@ Deno.serve(async (req) => {
   const vuolePush = tipoOk && (pref?.push ?? true);
   const vuoleEmail = tipoOk && (pref?.email ?? false);
   const appUrl = Deno.env.get("APP_URL") ?? "https://orubis92.github.io/GestionaleGDG/";
-  const esito: Record<string, unknown> = { id, push: 0, push_errori: 0, email: false };
+  const esito: Record<string, unknown> = { id, push: 0, push_errori: 0, push_dettaglio: [] as string[], email: false,
+    config: { vapid: !!(Deno.env.get("VAPID_PUBLIC_KEY") && Deno.env.get("VAPID_PRIVATE_KEY")), webhook_secret: !!segreto,
+              email: !!(Deno.env.get("EMAIL_FROM") && (Deno.env.get("BREVO_API_KEY") || Deno.env.get("RESEND_API_KEY"))),
+              vapid_public_prefix: (Deno.env.get("VAPID_PUBLIC_KEY") ?? "").slice(0, 12) } };
 
   // ---- PUSH ----
   if (vuolePush) {
     const pub = Deno.env.get("VAPID_PUBLIC_KEY"), priv = Deno.env.get("VAPID_PRIVATE_KEY"), subj = Deno.env.get("VAPID_SUBJECT") ?? "mailto:admin@example.com";
     if (pub && priv) {
       webpush.setVapidDetails(subj, pub, priv);
-      const { data: subs } = await db.from("push_iscrizioni").select("*").eq("user_id", n.user_id);
+      const { data: subs, error: se } = await db.from("push_iscrizioni").select("*").eq("user_id", n.user_id);
+      if (se) (esito.push_dettaglio as string[]).push(`lettura iscrizioni: ${se.message}`);
+      esito.iscrizioni = subs?.length ?? 0;
       const payload = JSON.stringify({ title: n.titolo, body: n.corpo ?? "", url: appUrl, dati: n.dati ?? {}, id: n.id, tipo: n.tipo });
       for (const s of subs ?? []) {
         try {
@@ -69,8 +76,12 @@ Deno.serve(async (req) => {
           (esito.push as number)++;
           await db.from("push_iscrizioni").update({ ultimo_uso: new Date().toISOString() }).eq("id", s.id);
         } catch (e) {
-          const code = (e as { statusCode?: number }).statusCode;
+          const err = e as { statusCode?: number; body?: string; message?: string };
+          const code = err.statusCode;
           (esito.push_errori as number)++;
+          const dett = `${new URL(s.endpoint).host}: ${code ?? "?"} ${(err.body ?? err.message ?? "").toString().slice(0, 160)}`;
+          (esito.push_dettaglio as string[]).push(dett);
+          console.error("push fallita", dett);
           if (code === 404 || code === 410) await db.from("push_iscrizioni").delete().eq("id", s.id);   // iscrizione scaduta
         }
       }
@@ -99,7 +110,9 @@ Deno.serve(async (req) => {
     } else esito.email = "email non configurata o destinatario mancante";
   }
 
-  await db.from("notifiche").update({ inviata_push: vuolePush ? (esito.push as number) > 0 : null, inviata_email: vuoleEmail ? esito.email === true : null }).eq("id", id);
+  console.log("esito", JSON.stringify(esito));
+  const { error: ue } = await db.from("notifiche").update({ inviata_push: vuolePush ? (esito.push as number) > 0 : null, inviata_email: vuoleEmail ? esito.email === true : null }).eq("id", id);
+  if (ue) esito.aggiornamento = ue.message;
   return json(esito);
 });
 

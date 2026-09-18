@@ -1,5 +1,5 @@
 -- =====================================================================
---  GestionaleGDG — schema Supabase (Postgres)  v1.0
+--  GestionaleGDG — schema Supabase (Postgres)  v1.7
 --  Comitato Giudici di Gara CSAIn — Tiro con l'arco 3D
 --
 --  Da incollare per intero nell'SQL Editor di Supabase ed eseguire.
@@ -135,11 +135,15 @@ create table if not exists convocazioni (
   created_by      uuid references auth.users (id),
   created_at      timestamptz not null default now(),
   updated_at      timestamptz not null default now(),
-  unique (gara_id, giudice_id),
   check (stato <> 'rifiutata' or coalesce(length(trim(motivo_rifiuto)),0) > 0)
 );
 create index if not exists convocazioni_giudice_idx on convocazioni (giudice_id);
 create index if not exists convocazioni_gara_idx on convocazioni (gara_id);
+-- v1.7: un giudice può avere una sola convocazione "viva" per gara; le righe annullate/rifiutate
+-- restano nello storico e non impediscono una nuova convocazione (il vincolo unique di v1.0 lo impediva)
+alter table convocazioni drop constraint if exists convocazioni_gara_id_giudice_id_key;
+create unique index if not exists convocazioni_attiva_uniq
+  on convocazioni (gara_id, giudice_id) where stato not in ('annullata','rifiutata');
 
 -- Storico cambi di stato delle convocazioni (popolato da trigger)
 create table if not exists convocazioni_storico (
@@ -367,6 +371,11 @@ begin
 
   if tg_op = 'INSERT' then
     if not comitato then raise exception 'Solo il comitato può creare convocazioni'; end if;
+    -- già convocato per questa gara (una precedente annullata/rifiutata non conta)
+    if exists (select 1 from convocazioni where gara_id = new.gara_id and giudice_id = new.giudice_id
+                 and stato not in ('rifiutata','annullata')) then
+      raise exception 'Il giudice ha già una convocazione attiva per questa gara';
+    end if;
     -- doppia convocazione lo stesso giorno (blocco)
     if exists (
       select 1 from convocazioni c join gare x on x.id = c.gara_id
@@ -1015,6 +1024,32 @@ end $$;
 create or replace function pulisci_notifiche() returns void language sql security definer set search_path = public as $$
   delete from notifiche where created_at < now() - interval '90 days';
 $$;
+
+-- v1.7: diagnostica della catena notifiche → webhook (solo comitato).
+-- Restituisce le ultime risposte ricevute dal webhook (tabella net._http_response di pg_net)
+-- e lo stato delle ultime notifiche: serve a capire dall'app perché una push non parte.
+create or replace function diagnostica_notifiche() returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare risposte jsonb := '[]'; ultime jsonb := '[]'; iscr int := 0; pgnet boolean;
+begin
+  if not is_comitato() then raise exception 'Operazione riservata al comitato'; end if;
+  select exists (select 1 from pg_extension where extname = 'pg_net') into pgnet;
+  if pgnet then
+    begin
+      execute $q$ select coalesce(jsonb_agg(jsonb_build_object('quando', created, 'stato', status_code,
+                          'errore', error_msg, 'risposta', left(content, 300)) order by created desc), '[]')
+                  from (select * from net._http_response order by created desc limit 8) r $q$ into risposte;
+    exception when others then risposte := to_jsonb('non leggibile: ' || sqlerrm);
+    end;
+  end if;
+  select coalesce(jsonb_agg(jsonb_build_object('quando', created_at, 'titolo', titolo, 'tipo', tipo,
+                  'inviata_push', inviata_push, 'inviata_email', inviata_email) order by created_at desc), '[]')
+    into ultime from (select * from notifiche order by created_at desc limit 8) n;
+  select count(*) into iscr from push_iscrizioni where user_id = auth.uid();
+  return jsonb_build_object('pg_net', pgnet, 'risposte_webhook', risposte, 'ultime_notifiche', ultime, 'mie_iscrizioni_push', iscr);
+end $$;
+grant execute on function diagnostica_notifiche() to authenticated;
+revoke execute on function diagnostica_notifiche() from public, anon;
 
 -- =====================================================================
 --  AGGIORNAMENTO v1.6 — privilegi delle funzioni
