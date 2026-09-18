@@ -804,11 +804,14 @@ alter table push_iscrizioni      enable row level security;
 alter table notifiche_preferenze enable row level security;
 
 drop policy if exists notif_select on notifiche;
+drop policy if exists notif_insert on notifiche;
 drop policy if exists notif_update on notifiche;
 drop policy if exists notif_delete on notifiche;
 drop policy if exists push_all     on push_iscrizioni;
 drop policy if exists pref_all     on notifiche_preferenze;
 create policy notif_select on notifiche for select to authenticated using (user_id = auth.uid());
+-- un utente può creare notifiche solo per se stesso (serve al pulsante "Invia una prova")
+create policy notif_insert on notifiche for insert to authenticated with check (user_id = auth.uid());
 create policy notif_update on notifiche for update to authenticated using (user_id = auth.uid()) with check (user_id = auth.uid());
 create policy notif_delete on notifiche for delete to authenticated using (user_id = auth.uid());
 create policy push_all on push_iscrizioni for all to authenticated using (user_id = auth.uid()) with check (user_id = auth.uid());
