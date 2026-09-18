@@ -71,6 +71,7 @@ const APP = require('path').join(__dirname,'..');
   for (const t of ['gare','convocazioni','profilo']) { await page.evaluate(k=>go(k), t); await page.waitForTimeout(150); await shot(page,'31-'+t); }
   await page.evaluate(()=>{S.filtri.gareSez='aggiornamenti';go('gare')}); await page.waitForTimeout(150); await shot(page,'31b-aggiornamenti-giudice');
   await page.evaluate(()=>setPresenza('k1','partecipa')); await page.waitForTimeout(300); await page.evaluate(()=>openCorso('k1')); await page.waitForTimeout(150); await shot(page,'31c-corso-giudice'); await page.evaluate(()=>$('modals').innerHTML=''); await page.evaluate(()=>{S.filtri.gareSez='gare'});
+  await page.evaluate(()=>dispNotaDlg('ga1')); await page.waitForTimeout(150); await shot(page,'32a-nota'); await page.fill('#dn-note','preferisco la mattina'); await page.click('.modal-bg:last-child .actions >> text=Salva'); await page.waitForTimeout(300);
   await page.evaluate(()=>setDisp('ga1','non_disponibile')); await page.waitForTimeout(300); await page.evaluate(()=>go('gare')); await shot(page,'32-disp');
   await page.evaluate(()=>rimborsoForm('c3')); await page.waitForTimeout(300); await shot(page,'33-rimborso-giudice');
   await page.evaluate(()=>$('modals').innerHTML=''); await page.evaluate(()=>giudiceForm('g2',true)); await page.waitForTimeout(150); await shot(page,'34-miei-dati');

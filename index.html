@@ -230,7 +230,7 @@ const CONFIG = {
   SUPABASE_URL: 'https://vscxesrpxmmyssrdegpm.supabase.co',
   SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZzY3hlc3JweG1teXNzcmRlZ3BtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk2MTk3MzYsImV4cCI6MjEwNTE5NTczNn0.cm98J7vJzY4qbxlsZ_9XpxYHTSvo7bMh4Sp7d1b_BeI'
 };
-const APP_VER = '1.4.0';
+const APP_VER = '1.5.0';
 /* ===================== COSTANTI DI DOMINIO ===================== */
 const QUALIFICHE = { regionale:'Giudice Regionale', nazionale:'Giudice Nazionale', emerito:'Giudice Emerito' };
 const RUOLI_GARA = { giudice:'Giudice', coordinatore:'Coordinatore', affiancamento:'Affiancamento' };
@@ -478,9 +478,10 @@ function homeComitato(){
   const nonCollegati = S.profili.filter(p=>p.ruolo==='ospite' || !p.giudice_id);
   const portaleSenzaConv = S.gare.filter(g=>g.origine==='swen' && g.stato==='programmata' && g.data_inizio>=oggi && g.giudice_swen && matchGiudiceSwen(g.giudice_swen) && !convDiGara(g.id).some(c=>['proposta','accettata','confermata'].includes(c.stato)));
   const corsiProssimi = S.corsi.filter(k=>k.stato==='programmato' && k.data>=oggi);
+  const conCandidati = scoperte.filter(g=>dispDiGara(g.id).some(d=>d.stato==='disponibile'));
   return `
   <div class="kpis">
-    <div class="kpi ${scoperte.length?'err':'ok'}" onclick="S.filtri.gare={scoperte:true};go('gare')" style="cursor:pointer"><b>${scoperte.length}</b><span>Gare future scoperte</span></div>
+    <div class="kpi ${scoperte.length?'err':'ok'}" onclick="S.filtri.gare={scoperte:true};go('gare')" style="cursor:pointer"><b>${scoperte.length}</b><span>Gare future scoperte${conCandidati.length?' · '+conCandidati.length+' con disponibili':''}</span></div>
     <div class="kpi ${proposte.length?'warn':''}"><b>${proposte.length}</b><span>Convocazioni in attesa di risposta</span></div>
     <div class="kpi ${accettate.length?'warn':''}"><b>${accettate.length}</b><span>Accettate da confermare</span></div>
     <div class="kpi ${daChiudere.length?'warn':''}"><b>${daChiudere.length}</b><span>Gare passate da chiudere</span></div>
@@ -489,9 +490,11 @@ function homeComitato(){
   </div>
   ${nonCollegati.length?`<div class="alert warn">${nonCollegati.length} account in attesa di attivazione (${nonCollegati.map(p=>esc(p.email||'')).join(', ')}): <a href="#" onclick="go('impostazioni');return false">attiva dalle impostazioni</a>.</div>`:''}
   ${portaleSenzaConv.length?`<div class="alert info">${portaleSenzaConv.length} gar${portaleSenzaConv.length>1?'e future hanno':'a futura ha'} un giudice registrato su arco.swen ma nessuna convocazione qui: <a href="#" onclick="S.filtri.report='riconcilia';go('report');return false">verifica nel report</a> e convoca se il comitato è d'accordo.</div>`:''}
-  ${corsiProssimi.length?`<div class="card"><div class="section-title" style="margin-top:0"><h3>Prossimi aggiornamenti</h3><button class="btn sm" onclick="S.filtri.gareSez='aggiornamenti';go('gare')">Tutti</button></div>${corsiProssimi.slice(0,3).map(corsoItem).join('')}</div>`:''}
+  ${conCandidati.length?`<div class="card"><div class="section-title" style="margin-top:0"><h3>Gare scoperte con giudici disponibili</h3><span class="small muted">${conCandidati.length} di ${scoperte.length} scoperte</span></div>
+    ${conCandidati.slice(0,8).map(g=>{ const ds=dispDiGara(g.id).filter(d=>d.stato==='disponibile'); return `<div class="list-item clickable" onclick="openGara('${g.id}')" style="cursor:pointer"><div class="body"><div class="t">${esc(g.titolo)} <span class="muted small">${fmtD(g.data_inizio)}</span></div><div class="s">✅ ${ds.map(d=>{ const j=S.giudici.find(x=>x.id===d.giudice_id); return esc(nomeG(j))+(d.note?' <i>('+esc(d.note)+')</i>':''); }).join(', ')} · ${confermatiGara(g)}/${g.fabbisogno_giudici} confermati</div></div><button class="btn sm primary" onclick="event.stopPropagation();assegnaDlg('${g.id}')">Assegna</button></div>`; }).join('')}</div>`:''}
   ${accettate.length?`<div class="card"><h3>Da confermare</h3>${accettate.map(c=>`<div class="list-item"><div class="body"><div class="t">${esc(c.cognome)} ${esc(c.nome)} ${pill(RUOLI_GARA[c.ruolo])}</div><div class="s">${esc(c.titolo)} · ${fmtD(c.data_inizio)}</div></div><button class="btn sm ok" onclick="cambiaStato('${c.id}','confermata')">Conferma</button></div>`).join('')}</div>`:''}
   ${daChiudere.length?`<div class="card"><h3>Gare svolte da chiudere</h3><p class="small muted">Segna per ogni convocazione se il giudice era presente: alimenta i conteggi del report.</p>${daChiudere.map(c=>`<div class="list-item"><div class="body"><div class="t">${esc(c.cognome)} ${esc(c.nome)} ${pill(RUOLI_GARA[c.ruolo])}</div><div class="s">${esc(c.titolo)} · ${fmtD(c.data_inizio)}</div></div><div class="row"><button class="btn sm ok" onclick="cambiaStato('${c.id}','svolta')">Svolta</button><button class="btn sm danger" onclick="cambiaStato('${c.id}','assente')">Assente</button></div></div>`).join('')}</div>`:''}
+  ${corsiProssimi.length?`<div class="card"><div class="section-title" style="margin-top:0"><h3>Prossimi aggiornamenti</h3><button class="btn sm" onclick="S.filtri.gareSez='aggiornamenti';go('gare')">Tutti</button></div>${corsiProssimi.slice(0,3).map(corsoItem).join('')}</div>`:''}
   <div class="card"><div class="section-title" style="margin-top:0"><h3>Prossime gare</h3><button class="btn sm" onclick="go('gare')">Tutte</button></div>
     ${prossime.length?prossime.map(g=>garaItem(g)).join(''):'<p class="muted">Nessuna gara in programma. Sincronizza il calendario dalle impostazioni o inserisci una gara.</p>'}
   </div>`;
@@ -613,7 +616,9 @@ VIEWS.gareList = (toggle='')=>{
   const mio = S.giudice ? (g)=>{ const d=dispDiGara(g.id).find(x=>x.giudice_id===S.giudice.id); const c=convDiGara(g.id).find(x=>x.giudice_id===S.giudice.id);
       if(c) return pill(STATI_CONV[c.stato], STATI_CONV_CLS[c.stato]);
       if(g.stato!=='programmata'||g.data_inizio<today()) return '';
-      return `<span class="avail-btns" onclick="event.stopPropagation()"><button class="${d&&d.stato==='disponibile'?'on-si':''}" onclick="setDisp('${g.id}','disponibile')">Disponibile</button><button class="${d&&d.stato==='non_disponibile'?'on-no':''}" onclick="setDisp('${g.id}','non_disponibile')">Non disp.</button></span>`; } : ()=>'';
+      const coperta = confermatiGara(g)>=g.fabbisogno_giudici;
+      if(coperta) return pill(d&&d.stato==='disponibile'?'Assegnata ad altri giudici':'Già coperta','grey');
+      return `<span class="avail-btns" onclick="event.stopPropagation()"><button class="${d&&d.stato==='disponibile'?'on-si':''}" onclick="setDisp('${g.id}','disponibile')">Disponibile</button><button class="${d&&d.stato==='non_disponibile'?'on-no':''}" onclick="setDisp('${g.id}','non_disponibile')">Non disp.</button></span>${d?`<button class="btn sm" style="margin-left:.3rem" onclick="event.stopPropagation();dispNotaDlg('${g.id}')" title="Nota per il comitato">${d.note?'📝 '+esc(d.note.length>25?d.note.slice(0,25)+'…':d.note):'+ nota'}</button>`:''}`; } : ()=>'';
   return `
   <div class="row between mb"><h2 style="margin:0">Gare ${selAnno()}</h2>${S.comitato?`<div class="row"><button class="btn sm" onclick="syncDlg()">↻ Sincronizza</button><button class="btn sm primary" onclick="garaForm()">+ Gara</button></div>`:''}</div>
   ${toggle}
@@ -626,6 +631,11 @@ VIEWS.gareList = (toggle='')=>{
   ${list.length?Object.keys(byMonth).sort().map(m=>{ const [y,mm]=m.split('-'); return `<div class="month-h">${MESI[+mm-1]} ${y}</div><div class="card">${byMonth[m].map(g=>garaItem(g, mio(g))).join('')}</div>`; }).join(''):'<div class="card"><p class="muted">Nessuna gara con questi filtri.</p></div>'}`;
 };
 
+function dispNotaDlg(gid){
+  const d=S.disp.find(x=>x.gara_id===gid && x.giudice_id===S.giudice.id); if(!d) return;
+  openModal('Nota per il comitato', `<p class="small muted">Facoltativa: es. "solo come affiancamento", "disponibile anche come coordinatore", "preferisco l'altra data", "arrivo solo la mattina".</p><textarea class="f" id="dn-note">${esc(d.note||'')}</textarea>`,
+    [{t:'Annulla',fn:(m)=>closeModal(m)},{t:'Salva',cls:'primary',fn:async(m)=>{ const {error}=await sb.from('disponibilita').update({note:$('dn-note').value.trim()||null}).eq('id',d.id); if(error) return err(error); closeModal(m); const r=await sb.from('disponibilita').select('*'); if(!r.error) S.disp=r.data; render(); }}]);
+}
 async function setDisp(gid, stato){
   const ex=S.disp.find(d=>d.gara_id===gid && d.giudice_id===S.giudice.id);
   let r;
@@ -653,7 +663,7 @@ function openGara(id){
     <div class="section-title"><h3>Convocazioni</h3>${S.comitato&&g.stato==='programmata'?`<button class="btn sm primary" onclick="assegnaDlg('${g.id}')">+ Assegna giudice</button>`:''}</div>
     ${convHtml}
     <div class="section-title"><h3>Disponibilità dichiarate</h3></div>
-    <p class="small">${dispSi.length?'✅ '+dispSi.map(d=>esc(gname(d.giudice_id))).join(', '):'<span class="muted">Nessuna disponibilità dichiarata.</span>'}${dispNo.length?'<br>⛔ '+dispNo.map(d=>esc(gname(d.giudice_id))).join(', '):''}</p>`;
+    <p class="small">${dispSi.length?'✅ '+dispSi.map(d=>esc(gname(d.giudice_id))+(d.note?' <i class="muted">('+esc(d.note)+')</i>':'')).join(', '):'<span class="muted">Nessuna disponibilità dichiarata.</span>'}${dispNo.length?'<br>⛔ '+dispNo.map(d=>esc(gname(d.giudice_id))+(d.note?' <i class="muted">('+esc(d.note)+')</i>':'')).join(', '):''}</p>`;
   const actions=[]; if(S.comitato){ actions.push({t:'Modifica',fn:(id)=>{closeModal(id);garaForm(g.id);}}); }
   actions.push({t:'Chiudi',cls:'navy',fn:(id)=>closeModal(id)});
   openModal(g.titolo, html, actions);
@@ -670,7 +680,7 @@ function assegnaDlg(gid){
     <input class="f" placeholder="Cerca giudice…" oninput="document.querySelectorAll('#asg-list .list-item').forEach(r=>r.style.display=r.dataset.n.includes(this.value.toLowerCase())?'':'none')">
     <div id="asg-list" style="max-height:55vh;overflow:auto;margin-top:.5rem">${list.map(g=>{ const d=disp.find(x=>x.giudice_id===g.id); const av=avvisiAssegnazione(g,ga); const sem=semaforoGiudice(g);
       return `<div class="list-item" data-n="${esc(nomeG(g).toLowerCase())}"><div class="body"><div class="t"><span class="sem ${sem.cls}"></span>${esc(nomeG(g))} ${pill(QUALIFICHE[g.qualifica],g.qualifica==='nazionale'?'orange':'')} ${g.in_affiancamento?pill('affiancamento','info'):''} ${d?(d.stato==='disponibile'?pill('disponibile','ok'):pill('non disponibile','err')):pill('non ha risposto','grey')}</div>
-        <div class="s">${esc(g.comune||'')} ${g.provincia?'('+esc(g.provincia)+')':''} · ${statoG(g.id).servizi_12m||0} servizi/12m${av.length?'<br><span style="color:var(--warn)">⚠ '+av.map(esc).join(' · ')+'</span>':''}</div></div>
+        <div class="s">${esc(g.comune||'')} ${g.provincia?'('+esc(g.provincia)+')':''} · ${statoG(g.id).servizi_12m||0} servizi/12m${d&&d.note?'<br>📝 <i>'+esc(d.note)+'</i>':''}${av.length?'<br><span style="color:var(--warn)">⚠ '+av.map(esc).join(' · ')+'</span>':''}</div></div>
         <button class="btn sm primary" onclick="assegnaConferma('${gid}','${g.id}')">Assegna</button></div>`; }).join('')}</div>`;
   openModal('Assegna giudice', html, [{t:'Chiudi',fn:(id)=>closeModal(id)}]);
 }
@@ -1070,6 +1080,7 @@ async function syncLog(){
    (1) la sezione GUIDE interessata, (2) CHANGELOG con la versione, (3) APP_VER e CACHE in sw.js.
    r: 'tutti' | 'comitato' | 'giudice'  — per chi è rilevante la sezione. */
 const CHANGELOG = [
+  {v:'1.5.0', d:'2026-09-17', items:['Candidature: in Home del comitato compare la lista delle gare scoperte con i giudici disponibili e il pulsante Assegna.','Il giudice può allegare una nota alla propria disponibilità (es. "solo come affiancamento"), visibile al comitato in fase di assegnazione e nella scheda gara.','Quando una gara viene coperta da altri, il giudice lo vede ("Assegnata ad altri giudici") invece di un pulsante ancora attivo.']},
   {v:'1.4.0', d:'2026-09-17', items:['Corsi e aggiornamenti gestiti dal comitato (scheda Gare → Corsi e aggiornamenti): creazione dell\'evento con invito automatico a tutti i giudici attivi, dichiarazione di partecipazione da parte dei giudici, registrazione delle presenze da parte del comitato. I giudici non inseriscono più aggiornamenti da soli; il requisito dei 12 mesi si calcola dalle presenze (più eventuali aggiornamenti esterni registrati dal comitato).','Riconciliazione con arco.swen più prudente: per le gare future non crea convocazioni (designa il comitato), conferma solo le proposte con cui il portale concorda e segnala il resto con il pulsante Convoca; per le gare passate segna "svolta" solo se il portale ha la classifica calcolata.','Sicurezza: le funzioni di riconciliazione e invito non sono più eseguibili senza login.','Libreria Supabase fissata a una versione precisa; data "oggi" calcolata in ora locale.']},
   {v:'1.3.0', d:'2026-09-17', items:['Nuovo stato "ospite": un account appena registrato non ha accesso a nessun dato finché il comitato non lo attiva (ruolo + profilo giudice) dalle impostazioni; il collegamento automatico per email è sostituito da un suggerimento da confermare.','Schermata di attesa per gli account non attivati; avviso in Home per il comitato con le email da attivare.']},
   {v:'1.2.0', d:'2026-09-17', items:['Albo giudici sincronizzato dal portale arco.swen (56 giudici di gara con società, comune, provincia, regione e numero tessera) al posto dell\'Albo Nazionale.','Riconciliazione automatica con arco.swen a ogni sincronizzazione del calendario: crea o conferma le convocazioni dal giudice registrato sul portale e chiude come "svolte" le gare passate, così i servizi vengono contati senza passaggi manuali.','Report → arco.swen: pulsante "Riconcilia ora" al posto dell\'importazione manuale.','Scheda giudice: numero e tipo tessera dall\'albo.']},
@@ -1115,7 +1126,9 @@ const GUIDE = [
    <li>Sotto ogni gara ci sono due pulsanti: <b>Disponibile</b> e <b>Non disp.</b> Tocca quello giusto; il pulsante si colora (verde o rosso). Toccandolo di nuovo la dichiarazione viene tolta.</li>
    <li>Se per una gara hai già una convocazione, al posto dei pulsanti vedi il suo stato.</li>
   </ol>
-  <p>Dichiarare la disponibilità non è un obbligo, ma il comitato assegna scegliendo <i>prima</i> tra chi si è dichiarato disponibile: più disponibilità dai, più è probabile essere convocato sulle gare che preferisci. Chi non risponde viene comunque considerato.</p>`},
+  <p>Dichiarare la disponibilità è la tua <b>candidatura</b>: il comitato assegna scegliendo <i>prima</i> tra chi si è dichiarato disponibile, e in Home vede subito le gare scoperte con i candidati. Chi non risponde viene comunque considerato.</p>
+  <p>Dopo aver dichiarato, il pulsante <b>+ nota</b> permette di aggiungere un messaggio per il comitato ("solo come affiancamento", "disponibile anche come coordinatore", "preferisco l'altra data"): compare accanto al tuo nome quando il comitato assegna.</p>
+  <p>Quando la gara è coperta da altri, i pulsanti spariscono e vedi <span class="pill grey">Assegnata ad altri giudici</span> (o "Già coperta" se non ti eri dichiarato). Se invece sei stato scelto, vedi lo stato della tua convocazione.</p>`},
  {cat:'Giudice', r:'giudice', t:'Rispondere a una convocazione', c:`
   <p>Quando il comitato ti propone una gara, la trovi in Home e nella scheda <b>Convocazioni</b> con stato <span class="pill warn">Proposta</span>. Il pallino rosso sulla scheda Convocazioni conta le proposte in attesa.</p>
   <ul>
@@ -1154,6 +1167,7 @@ const GUIDE = [
    <li><b>Gare passate da chiudere</b>: convocazioni confermate di gare già svolte: segna <b>Svolta</b> o <b>Assente</b>. Solo le convocazioni "svolte" contano nei report e nei requisiti (per le gare arco.swen ci pensa la sincronizzazione).</li>
    <li><b>Rimborsi da approvare</b> e <b>Giudici con requisiti mancanti</b>.</li>
   </ul>
+  <p><b>Gare scoperte con giudici disponibili</b>: la lista di lavoro. Per ogni gara futura non coperta con almeno una disponibilità, i nomi dei candidati con le loro eventuali note e il pulsante <b>Assegna</b>.</p>
   <p>Se ci sono account registrati in attesa di attivazione compare un avviso con le email e il link alle impostazioni.</p>`},
  {cat:'Comitato', r:'comitato', t:'Gare: calendario, sincronizzazione e inserimento', c:`
   <p>La scheda <b>Gare</b> mostra le gare dell'anno sportivo selezionato, per mese. Filtri: ricerca libera, classificazione, stato, <i>Solo scoperte</i>, <i>Anche passate</i>. Ogni gara riporta quanti giudici sono confermati rispetto al fabbisogno (rosso se scoperta).</p>
@@ -1163,7 +1177,7 @@ const GUIDE = [
  {cat:'Comitato', r:'comitato', t:'Convocare un giudice (passo passo)', c:`
   <ol>
    <li>Apri la gara (dalla Home o dalla scheda Gare) e premi <b>+ Assegna giudice</b>.</li>
-   <li>L'elenco mostra i giudici attivi non ancora convocati, ordinati: prima i <span class="pill ok">disponibili</span>, poi chi <span class="pill grey">non ha risposto</span>, infine i <span class="pill err">non disponibili</span>. Per ognuno: qualifica, semaforo requisiti, servizi negli ultimi 12 mesi e gli eventuali <b>avvisi</b> (deroga necessaria, stessa società dell'organizzatore, tessera scaduta, già convocato lo stesso giorno…).</li>
+   <li>L'elenco mostra i giudici attivi non ancora convocati, ordinati: prima i <span class="pill ok">disponibili</span>, poi chi <span class="pill grey">non ha risposto</span>, infine i <span class="pill err">non disponibili</span>. Per ognuno: qualifica, semaforo requisiti, servizi negli ultimi 12 mesi, l'eventuale <b>nota</b> lasciata dal giudice con la disponibilità e gli eventuali <b>avvisi</b> (deroga necessaria, stessa società dell'organizzatore, tessera scaduta, già convocato lo stesso giorno…).</li>
    <li>Premi <b>Assegna</b>: scegli il <b>ruolo</b> in gara (Giudice; Coordinatore per i Nazionali nelle gare nazionali; Affiancamento per chi è in affiancamento), spunta la <b>deroga</b> se richiesta, scegli se creare una <b>Proposta</b> (il giudice deve accettare) o una convocazione <b>Confermata</b> direttamente (per accordi già presi a voce).</li>
    <li>Quando il giudice accetta, <b>Conferma</b> (dalla Home o dalla scheda gara). Dopo la gara segna <b>Svolta</b> o <b>Assente</b>.</li>
   </ol>

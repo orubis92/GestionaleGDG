@@ -15,7 +15,7 @@
       {id:'ga4',swen_id:4,titolo:'Gara svolta anno scorso',data_inizio:'2026-03-15',anno_sportivo:'2025/2026',classificazione:'Regionale',tipo_descrizione:'40 Round',societa_organizzatrice:'ASD Test',regione:'Toscana',numero_percorsi:1,fabbisogno_giudici:1,stato:'svolta',origine:'swen',giudice_swen:'BIANCHI LUCA',indoor:false}
     ],
     profili:[{id:'u1',email:'comitato@test.it',ruolo:'comitato',giudice_id:'g1'},{id:'u2',email:'rossi@test.it',ruolo:'giudice',giudice_id:'g2'},{id:'u3',email:'nuovo@test.it',ruolo:'ospite',giudice_id:null}],
-    disponibilita:[{id:'d1',gara_id:'ga1',giudice_id:'g2',stato:'disponibile'},{id:'d2',gara_id:'ga2',giudice_id:'g3',stato:'non_disponibile'}],
+    disponibilita:[{id:'d1',gara_id:'ga1',giudice_id:'g2',stato:'disponibile',note:'solo come affiancamento'},{id:'d3',gara_id:'ga2',giudice_id:'g1',stato:'disponibile'},{id:'d2',gara_id:'ga2',giudice_id:'g3',stato:'non_disponibile'}],
     convocazioni:[
       {id:'c1',gara_id:'ga1',giudice_id:'g1',ruolo:'coordinatore',stato:'confermata',deroga:false},
       {id:'c2',gara_id:'ga2',giudice_id:'g2',ruolo:'giudice',stato:'proposta',deroga:false},
